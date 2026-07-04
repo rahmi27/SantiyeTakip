@@ -8,13 +8,16 @@ import {
   ClipboardList,
   Edit3,
   Eye,
+  FileText,
   Lock,
   LogOut,
   MapPinned,
+  MessageSquare,
   Plus,
   RotateCcw,
   Search,
   ShieldCheck,
+  Trash2,
   Upload,
   UserCog,
   X,
@@ -23,12 +26,13 @@ import {
 } from "lucide-react";
 import seedData from "./data/siteData.json";
 
-const STORAGE_KEY = "tugay-santiye-state-v4";
+const STORAGE_KEY = "tugay-santiye-state-v5";
 const SESSION_KEY = "tugay-santiye-current-user";
 
 const statusLabels = {
   pending: "Onay bekliyor",
   revision: "Revize istendi",
+  answered: "Cevaplandı",
   approved: "Onaylandı",
 };
 
@@ -47,8 +51,74 @@ const defaultProgressRanges = [
   { id: "range-40-100", min: 40, max: 100, color: "#1f9d63", label: "40-100" },
 ];
 
+const textFixes = [
+  ["Ä°", "İ"],
+  ["Ä±", "ı"],
+  ["ÄŸ", "ğ"],
+  ["Äž", "Ğ"],
+  ["Ã¼", "ü"],
+  ["Ãœ", "Ü"],
+  ["Ã¶", "ö"],
+  ["Ã–", "Ö"],
+  ["ÅŸ", "ş"],
+  ["Å", "Ş"],
+  ["Ã§", "ç"],
+  ["Ã‡", "Ç"],
+  ["Â·", "·"],
+];
+
+function cleanText(value) {
+  if (typeof value !== "string") return value;
+  return textFixes.reduce((text, [bad, good]) => text.replaceAll(bad, good), value);
+}
+
+function makeLog(actor, action, detail) {
+  return {
+    id: `LOG-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    at: new Date().toISOString(),
+    actor: actor?.name || "Sistem",
+    action,
+    detail,
+  };
+}
+
 function copySeed() {
-  return JSON.parse(JSON.stringify({ ...seedData, progressRanges: seedData.progressRanges || defaultProgressRanges }));
+  return normalizeState({ ...seedData, progressRanges: seedData.progressRanges || defaultProgressRanges });
+}
+
+function normalizeState(raw) {
+  const draft = JSON.parse(JSON.stringify(raw));
+  draft.progressRanges = draft.progressRanges?.length ? draft.progressRanges : defaultProgressRanges;
+  draft.logs = draft.logs || [];
+  draft.workItems = (draft.workItems || []).map((work) => ({ ...work, label: cleanText(work.label) }));
+  draft.buildings = (draft.buildings || []).map((building) => {
+    const count = Math.max(1, building.works?.length || 1);
+    const works = (building.works || []).map((work) => ({
+      ...work,
+      label: cleanText(work.label),
+      quantity: clampQuantity(work.quantity),
+      weight: clampPercent(work.weight ?? Math.round(100 / count)),
+    }));
+    return {
+      ...building,
+      name: cleanText(building.name),
+      lineColor: cleanText(building.lineColor),
+      works,
+      progress: building.progress || Object.fromEntries(works.map((work) => [work.key, 0])),
+      files: building.files || [],
+    };
+  });
+  draft.users = (draft.users || []).map((user) => ({
+    ...user,
+    name: cleanText(user.name),
+    workPermissions: user.role === "admin" ? draft.workItems.map((work) => work.key) : user.workPermissions || [],
+  }));
+  draft.requests = draft.requests || [];
+  draft.regions = (draft.regions || []).map((region) => ({
+    ...region,
+    shape: region.points?.length ? "polygon" : region.shape || "rect",
+  }));
+  return draft;
 }
 
 function loadInitialState() {
@@ -60,10 +130,9 @@ function loadInitialState() {
     const allWorkKeys = seed.workItems.map((work) => work.key);
     const users = (parsed.users?.length ? parsed.users : seed.users).map((user) => ({
       ...user,
-      workPermissions:
-        user.role === "admin" ? allWorkKeys : user.workPermissions?.length ? user.workPermissions : allWorkKeys,
+      workPermissions: user.role === "admin" ? allWorkKeys : user.workPermissions || [],
     }));
-    return {
+    return normalizeState({
       ...seed,
       ...parsed,
       buildings: parsed.buildings?.length ? parsed.buildings : seedData.buildings,
@@ -73,7 +142,7 @@ function loadInitialState() {
       users,
       requests: parsed.requests || [],
       progressRanges: parsed.progressRanges?.length ? parsed.progressRanges : seed.progressRanges,
-    };
+    });
   } catch {
     return copySeed();
   }
@@ -87,11 +156,13 @@ function clampPercent(value) {
 
 function getBuildingProgress(building) {
   if (!building?.works?.length) return 0;
+  const fallbackWeight = 100 / building.works.length;
+  const totalWeight = building.works.reduce((sum, work) => sum + Number(work.weight || fallbackWeight), 0);
   const total = building.works.reduce((sum, work) => {
-    return sum + Number(building.progress?.[work.key] || 0);
+    const weight = Number(work.weight || fallbackWeight);
+    return sum + Number(building.progress?.[work.key] || 0) * (weight / Math.max(1, totalWeight));
   }, 0);
-  if (total <= 0) return 0;
-  return Math.max(1, Math.round(total / building.works.length));
+  return clampPercent(total);
 }
 
 function canAccess(user, buildingId) {
@@ -108,6 +179,7 @@ function progressTone(value) {
 
 function statusTone(status) {
   if (status === "approved") return "good";
+  if (status === "answered") return "mid";
   if (status === "revision") return "warn";
   return "info";
 }
@@ -126,7 +198,7 @@ function clampQuantity(value) {
 function getUserWorkPermissions(user, workItems) {
   if (!user) return [];
   if (user.role === "admin") return workItems.map((work) => work.key);
-  return user.workPermissions?.length ? user.workPermissions : workItems.map((work) => work.key);
+  return user.workPermissions || [];
 }
 
 function getRequestItems(request) {
@@ -235,6 +307,7 @@ function App() {
       if (!building) return;
       building.progress = building.progress || {};
       building.progress[workKey] = clampPercent(value);
+      draft.logs.unshift(makeLog(currentUser, "İş yüzdesi güncellendi", `${building.code} / ${workKey}: ${building.progress[workKey]}%`));
     });
   }
 
@@ -244,6 +317,58 @@ function App() {
       const work = building?.works.find((item) => item.key === workKey);
       if (!work) return;
       work.quantity = clampQuantity(value);
+      draft.logs.unshift(makeLog(currentUser, "İş miktarı güncellendi", `${building.code} / ${work.label}: ${formatQuantity(work.quantity)}`));
+    });
+  }
+
+  function setWorkWeight(buildingId, workKey, value) {
+    updateState((draft) => {
+      const building = draft.buildings.find((item) => item.id === buildingId);
+      const work = building?.works.find((item) => item.key === workKey);
+      if (!work) return;
+      work.weight = clampPercent(value);
+      draft.logs.unshift(makeLog(currentUser, "İş ağırlığı güncellendi", `${building.code} / ${work.label}: ${work.weight}%`));
+    });
+  }
+
+  function updateWorkLabel(buildingId, workKey, label) {
+    updateState((draft) => {
+      const building = draft.buildings.find((item) => item.id === buildingId);
+      const work = building?.works.find((item) => item.key === workKey);
+      if (!work) return;
+      work.label = label;
+      const globalWork = draft.workItems.find((item) => item.key === workKey);
+      if (globalWork) globalWork.label = label;
+      draft.logs.unshift(makeLog(currentUser, "İş kalemi adı güncellendi", `${building.code} / ${label}`));
+    });
+  }
+
+  function addBuildingWork(buildingId, label) {
+    const cleanLabel = label.trim();
+    if (!cleanLabel) return;
+    updateState((draft) => {
+      const building = draft.buildings.find((item) => item.id === buildingId);
+      if (!building) return;
+      const keyBase = cleanLabel
+        .toLocaleLowerCase("tr-TR")
+        .replace(/[^a-z0-9ığüşöç]+/gi, "_")
+        .replace(/^_+|_+$/g, "");
+      const key = `${keyBase || "ek_is"}_${Date.now()}`;
+      building.works.push({ key, label: cleanLabel, quantity: 0, weight: 0 });
+      building.progress = building.progress || {};
+      building.progress[key] = 0;
+      draft.workItems.push({ key, label: cleanLabel });
+      draft.logs.unshift(makeLog(currentUser, "Ek iş kalemi eklendi", `${building.code} / ${cleanLabel}`));
+    });
+  }
+
+  function addBuildingFile(buildingId, file) {
+    updateState((draft) => {
+      const building = draft.buildings.find((item) => item.id === buildingId);
+      if (!building) return;
+      building.files = building.files || [];
+      building.files.unshift(file);
+      draft.logs.unshift(makeLog(currentUser, "Bina dosyası yüklendi", `${building.code} / ${file.name}`));
     });
   }
 
@@ -258,6 +383,7 @@ function App() {
         adminNote: "",
         ...payload,
       });
+      draft.logs.unshift(makeLog(currentUser, "Talep oluşturuldu", payload.adminTask ? "Süper admin saha isteği" : `${payload.buildingId} ilerleme talebi`));
     });
   }
 
@@ -277,6 +403,7 @@ function App() {
       request.adminNote = note || "";
       request.reviewedAt = new Date().toISOString();
       request.reviewedBy = currentUser.name;
+      request.adminTask = false;
 
       const building = draft.buildings.find((item) => item.id === request.buildingId);
       if (!building) return;
@@ -287,6 +414,7 @@ function App() {
         const addPercent = (Number(item.approvedQuantity || 0) / Number(work.quantity)) * 100;
         building.progress[item.workKey] = clampPercent(Number(building.progress[item.workKey] || 0) + addPercent);
       });
+      draft.logs.unshift(makeLog(currentUser, "Talep onaylandı", `${building.code} / ${request.id}`));
     });
   }
 
@@ -298,6 +426,19 @@ function App() {
       request.adminNote = note || "Revize gerekli";
       request.reviewedAt = new Date().toISOString();
       request.reviewedBy = currentUser.name;
+      draft.logs.unshift(makeLog(currentUser, "Revize istendi", `${request.buildingId} / ${request.id}`));
+    });
+  }
+
+  function answerRevision(requestId, answer, photo) {
+    updateState((draft) => {
+      const request = draft.requests.find((item) => item.id === requestId);
+      if (!request) return;
+      request.status = "answered";
+      request.revisionAnswer = answer || "";
+      request.answerPhoto = photo || "";
+      request.answeredAt = new Date().toISOString();
+      draft.logs.unshift(makeLog(currentUser, "Revize cevaplandı", `${request.buildingId} / ${request.id}`));
     });
   }
 
@@ -307,6 +448,20 @@ function App() {
       if (region) region.buildingId = buildingId;
     });
     setSelectedBuildingId(buildingId);
+  }
+
+  function updateRegionGeometry(regionId, points) {
+    updateState((draft) => {
+      const region = draft.regions.find((item) => item.id === regionId);
+      if (!region) return;
+      region.points = points;
+      region.shape = "polygon";
+      delete region.x;
+      delete region.y;
+      delete region.width;
+      delete region.height;
+      draft.logs.unshift(makeLog(currentUser, "Harita poligonu güncellendi", region.id));
+    });
   }
 
   function addManualRegion(region) {
@@ -320,7 +475,7 @@ function App() {
     updateState((draft) => {
       draft.regions.push({
         id: regionId,
-        shape: "rect",
+        shape: region.points?.length ? "polygon" : "rect",
         source: "manual",
         buildingId,
         ...region,
@@ -441,8 +596,18 @@ function App() {
             ? draft.workItems.map((work) => work.key)
             : user.workPermissions?.length
               ? user.workPermissions
-              : draft.workItems.map((work) => work.key),
+              : [],
       });
+      draft.logs.unshift(makeLog(currentUser, "Kullanıcı eklendi", user.username));
+    });
+  }
+
+  function deleteUser(userId) {
+    updateState((draft) => {
+      const user = draft.users.find((item) => item.id === userId);
+      if (!user || user.id === currentUser?.id) return;
+      draft.users = draft.users.filter((item) => item.id !== userId);
+      draft.logs.unshift(makeLog(currentUser, "Kullanıcı silindi", user.username));
     });
   }
 
@@ -478,9 +643,13 @@ function App() {
                 <Building2 size={17} />
                 Binalar
               </button>
+              <button className={activeTab === "logs" ? "active" : ""} onClick={() => setActiveTab("logs")}>
+                <FileText size={17} />
+                Log
+              </button>
               <button className={activeTab === "users" ? "active" : ""} onClick={() => setActiveTab("users")}>
-              <UserCog size={17} />
-              Kullanıcılar
+                <UserCog size={17} />
+                Kullanıcılar
               </button>
             </>
           )}
@@ -499,39 +668,7 @@ function App() {
       </header>
 
       {activeTab === "map" && (
-        <main className="workspace">
-          <BuildingSidebar
-            buildings={visibleBuildings}
-            totalCount={accessibleBuildings.length}
-            query={query}
-            onQuery={setQuery}
-            selectedBuildingId={selectedBuilding?.id}
-            onSelect={(buildingId) => {
-              setSelectedBuildingId(buildingId);
-              const region = state.regions.find((item) => item.buildingId === buildingId);
-              setSelectedRegionId(region?.id || null);
-              setOpenBuildingId(buildingId);
-            }}
-          />
-          <MapPanel
-            map={state.map}
-            regions={state.regions}
-            buildingsById={buildingsById}
-            user={currentUser}
-            selectedRegionId={selectedRegionId}
-            zoom={zoom}
-            onZoom={setZoom}
-            progressRanges={state.progressRanges}
-            manualMode={manualMode}
-            onManualModeChange={setManualMode}
-            onManualRegionAdd={addManualRegion}
-            onSelect={(region) => {
-              if (!canAccess(currentUser, region.buildingId)) return;
-              setSelectedRegionId(region.id);
-              setSelectedBuildingId(region.buildingId);
-              setOpenBuildingId(region.buildingId);
-            }}
-          />
+        <>
           <SummaryPanel
             user={currentUser}
             buildings={accessibleBuildings}
@@ -542,7 +679,41 @@ function App() {
             onDeleteProgressRange={deleteProgressRange}
             onReset={resetDemoData}
           />
-        </main>
+          <main className="workspace">
+            <BuildingSidebar
+              buildings={visibleBuildings}
+              totalCount={accessibleBuildings.length}
+              query={query}
+              onQuery={setQuery}
+              selectedBuildingId={selectedBuilding?.id}
+              onSelect={(buildingId) => {
+                setSelectedBuildingId(buildingId);
+                const region = state.regions.find((item) => item.buildingId === buildingId);
+                setSelectedRegionId(region?.id || null);
+                setOpenBuildingId(buildingId);
+              }}
+            />
+            <MapPanel
+              map={state.map}
+              regions={state.regions}
+              buildingsById={buildingsById}
+              user={currentUser}
+              selectedRegionId={selectedRegionId}
+              zoom={zoom}
+              onZoom={setZoom}
+              progressRanges={state.progressRanges}
+              manualMode={manualMode}
+              onManualModeChange={setManualMode}
+              onManualRegionAdd={addManualRegion}
+              onSelect={(region) => {
+                if (!canAccess(currentUser, region.buildingId)) return;
+                setSelectedRegionId(region.id);
+                setSelectedBuildingId(region.buildingId);
+                setOpenBuildingId(region.buildingId);
+              }}
+            />
+          </main>
+        </>
       )}
 
       {activeTab === "requests" && (
@@ -552,6 +723,7 @@ function App() {
           buildingsById={buildingsById}
           onApprove={approveRequest}
           onRevision={requestRevision}
+          onAnswerRevision={answerRevision}
           onOpenBuilding={(buildingId) => {
             setSelectedBuildingId(buildingId);
             const region = state.regions.find((item) => item.buildingId === buildingId);
@@ -561,6 +733,8 @@ function App() {
           }}
         />
       )}
+
+      {activeTab === "logs" && currentUser.role === "admin" && <LogsPanel logs={state.logs} />}
 
       {activeTab === "buildings" && currentUser.role === "admin" && (
         <BuildingsPanel
@@ -579,6 +753,9 @@ function App() {
           }}
           onSetWorkProgress={setWorkProgress}
           onSetWorkQuantity={setWorkQuantity}
+          onSetWorkWeight={setWorkWeight}
+          onUpdateWorkLabel={updateWorkLabel}
+          onAddBuildingWork={addBuildingWork}
         />
       )}
 
@@ -593,6 +770,7 @@ function App() {
           onBulkPermissions={bulkSetPermissions}
           onBulkWorkPermissions={bulkSetWorkPermissions}
           onAddUser={addUser}
+          onDeleteUser={deleteUser}
         />
       )}
 
@@ -607,10 +785,16 @@ function App() {
           onClose={() => setOpenBuildingId(null)}
           onSetWorkProgress={setWorkProgress}
           onSetWorkQuantity={setWorkQuantity}
+          onSetWorkWeight={setWorkWeight}
+          onUpdateWorkLabel={updateWorkLabel}
+          onAddBuildingWork={addBuildingWork}
+          onAddBuildingFile={addBuildingFile}
           onCreateRequest={createRequest}
           onApproveRequest={approveRequest}
           onRevision={requestRevision}
+          onAnswerRevision={answerRevision}
           onUpdateRegionBuilding={updateRegionBuilding}
+          onUpdateRegionGeometry={updateRegionGeometry}
           onDeleteRegion={deleteRegion}
         />
       )}
@@ -633,22 +817,9 @@ function LoginScreen({ users, onLogin }) {
     onLogin(user.id);
   }
 
-  function fillUser(user) {
-    setUsername(user.username);
-    setPassword(user.password);
-    setError("");
-  }
-
   return (
     <main className="login-screen">
       <section className="login-panel">
-        <div className="login-visual">
-          <img src="/assets/site-map.png" alt="Tugay haritası" />
-          <div className="login-badge">
-            <ShieldCheck size={18} />
-            Yetkili saha girişi
-          </div>
-        </div>
         <form className="login-form" onSubmit={submit}>
           <div className="login-title">
             <div className="brand-mark">
@@ -682,14 +853,6 @@ function LoginScreen({ users, onLogin }) {
             Giriş
           </button>
 
-          <div className="quick-users">
-            {users.slice(0, 4).map((user) => (
-              <button type="button" key={user.id} onClick={() => fillUser(user)}>
-                <CircleUserRound size={16} />
-                {user.username}
-              </button>
-            ))}
-          </div>
         </form>
       </section>
     </main>
@@ -751,7 +914,7 @@ function MapPanel({
   onManualRegionAdd,
   onSelect,
 }) {
-  const [draftRegion, setDraftRegion] = useState(null);
+  const [draftPoints, setDraftPoints] = useState([]);
 
   function getSvgPoint(event) {
     const box = event.currentTarget.getBoundingClientRect();
@@ -761,44 +924,38 @@ function MapPanel({
     };
   }
 
-  function startManualRegion(event) {
+  function addManualPoint(event) {
     if (user.role !== "admin" || !manualMode) return;
     const point = getSvgPoint(event);
-    setDraftRegion({ startX: point.x, startY: point.y, endX: point.x, endY: point.y });
+    setDraftPoints((previous) => [...previous, point]);
   }
 
-  function moveManualRegion(event) {
-    if (!draftRegion || user.role !== "admin" || !manualMode) return;
-    const point = getSvgPoint(event);
-    setDraftRegion((previous) => ({ ...previous, endX: point.x, endY: point.y }));
-  }
-
-  function finishManualRegion(event) {
-    if (!draftRegion || user.role !== "admin" || !manualMode) return;
-    const point = getSvgPoint(event);
-    const x0 = Math.min(draftRegion.startX, point.x);
-    const y0 = Math.min(draftRegion.startY, point.y);
-    const x1 = Math.max(draftRegion.startX, point.x);
-    const y1 = Math.max(draftRegion.startY, point.y);
-    setDraftRegion(null);
-    if (x1 - x0 < 6 || y1 - y0 < 6) return;
+  function finishManualPolygon() {
+    if (draftPoints.length < 3) return;
     onManualRegionAdd({
-      x: Number((x0 / map.width).toFixed(5)),
-      y: Number((y0 / map.height).toFixed(5)),
-      width: Number(((x1 - x0) / map.width).toFixed(5)),
-      height: Number(((y1 - y0) / map.height).toFixed(5)),
-      pixelBox: [Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1)],
+      points: draftPoints.map((point) => ({
+        x: Number((point.x / map.width).toFixed(5)),
+        y: Number((point.y / map.height).toFixed(5)),
+      })),
     });
+    setDraftPoints([]);
   }
 
-  const draftBox = draftRegion
-    ? {
-        x: Math.min(draftRegion.startX, draftRegion.endX),
-        y: Math.min(draftRegion.startY, draftRegion.endY),
-        width: Math.abs(draftRegion.endX - draftRegion.startX),
-        height: Math.abs(draftRegion.endY - draftRegion.startY),
-      }
-    : null;
+  function getRegionGeometry(region) {
+    if (region.points?.length) {
+      return {
+        type: "polygon",
+        points: region.points.map((point) => `${point.x * map.width},${point.y * map.height}`).join(" "),
+      };
+    }
+    return {
+      type: "rect",
+      x: region.x * map.width,
+      y: region.y * map.height,
+      width: region.width * map.width,
+      height: region.height * map.height,
+    };
+  }
 
   return (
     <section className="map-section">
@@ -814,22 +971,33 @@ function MapPanel({
               onClick={() => onManualModeChange(!manualMode)}
             >
               <Plus size={16} />
-              Manuel bölge
+              Poligon çiz
             </button>
           )}
-          <button className="icon-button" title="Uzaklaştır" onClick={() => onZoom(Math.max(0.65, zoom - 0.1))}>
+          {manualMode && (
+            <>
+              <button className="secondary-action" disabled={draftPoints.length < 3} onClick={finishManualPolygon}>
+                <Check size={16} />
+                Bitir
+              </button>
+              <button className="icon-button" title="Çizimi temizle" onClick={() => setDraftPoints([])}>
+                <X size={16} />
+              </button>
+            </>
+          )}
+          <button className="icon-button" title="Uzaklaştır" onClick={() => onZoom(Math.max(0.45, zoom - 0.15))}>
             <ZoomOut size={17} />
           </button>
           <input
             aria-label="Harita yakınlaştırma"
             type="range"
-            min="0.65"
-            max="1.8"
+            min="0.45"
+            max="3"
             step="0.05"
             value={zoom}
             onChange={(event) => onZoom(Number(event.target.value))}
           />
-          <button className="icon-button" title="Yakınlaştır" onClick={() => onZoom(Math.min(1.8, zoom + 0.1))}>
+          <button className="icon-button" title="Yakınlaştır" onClick={() => onZoom(Math.min(3, zoom + 0.15))}>
             <ZoomIn size={17} />
           </button>
         </div>
@@ -841,49 +1009,44 @@ function MapPanel({
           <svg
             viewBox={`0 0 ${map.width} ${map.height}`}
             preserveAspectRatio="none"
-            onPointerDown={startManualRegion}
-            onPointerMove={moveManualRegion}
-            onPointerUp={finishManualRegion}
-            onPointerLeave={() => setDraftRegion(null)}
+            onClick={addManualPoint}
           >
             {regions.map((region) => {
               const building = buildingsById[region.buildingId];
               const allowed = canAccess(user, region.buildingId);
               const progress = getBuildingProgress(building);
-              const x = region.x * map.width;
-              const y = region.y * map.height;
-              const width = region.width * map.width;
-              const height = region.height * map.height;
               const tone = progressTone(progress);
               const progressRange = getProgressRange(progress, progressRanges);
+              const geometry = getRegionGeometry(region);
+              const shapeProps = {
+                className: `hotspot-shape ${selectedRegionId === region.id ? "selected" : ""}`,
+                style: {
+                  fill: allowed ? `${progressRange?.color || "#d91acb"}55` : "rgba(86, 98, 116, 0.08)",
+                  stroke: "#6d747c",
+                },
+                onClick: (event) => {
+                  event.stopPropagation();
+                  onSelect(region);
+                },
+              };
               return (
                 <g key={region.id} className={`hotspot ${allowed ? "allowed" : "locked"} ${tone}`}>
-                  <rect
-                    x={x}
-                    y={y}
-                    width={width}
-                    height={height}
-                    rx="3"
-                    className={selectedRegionId === region.id ? "selected" : ""}
-                    style={{
-                      fill: `${progressRange?.color || "#d91acb"}33`,
-                      stroke: progressRange?.color || "#d91acb",
-                    }}
-                    onClick={() => onSelect(region)}
-                  />
-                  <title>{`${region.id} · ${building?.code || "Bina seçilmedi"}`}</title>
+                  {geometry.type === "polygon" ? (
+                    <polygon points={geometry.points} {...shapeProps} />
+                  ) : (
+                    <rect x={geometry.x} y={geometry.y} width={geometry.width} height={geometry.height} rx="2" {...shapeProps} />
+                  )}
+                  <title>{`${region.id} · ${building?.code || "Bina seçilmedi"} · ${progress}%`}</title>
                 </g>
               );
             })}
-            {draftBox && (
-              <rect
-                className="manual-draft"
-                x={draftBox.x}
-                y={draftBox.y}
-                width={draftBox.width}
-                height={draftBox.height}
-                rx="3"
-              />
+            {draftPoints.length > 0 && (
+              <>
+                <polyline className="manual-draft-line" points={draftPoints.map((point) => `${point.x},${point.y}`).join(" ")} />
+                {draftPoints.map((point, index) => (
+                  <circle className="manual-draft-point" key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="7" />
+                ))}
+              </>
             )}
           </svg>
         </div>
@@ -935,52 +1098,10 @@ function SummaryPanel({
         </div>
       </div>
       {user.role === "admin" && (
-        <>
-          <div className="range-editor">
-            <div className="section-heading flat">
-              <div>
-                <span>Harita renkleri</span>
-                <strong>{progressRanges?.length || 0} dilim</strong>
-              </div>
-              <button className="icon-button" title="Dilim ekle" onClick={onAddProgressRange}>
-                <Plus size={16} />
-              </button>
-            </div>
-            {(progressRanges || defaultProgressRanges).map((range) => (
-              <div className="range-editor-row" key={range.id}>
-                <input
-                  aria-label="Minimum yüzde"
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={range.min}
-                  onChange={(event) => onUpdateProgressRange(range.id, { min: event.target.value })}
-                />
-                <input
-                  aria-label="Maksimum yüzde"
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={range.max}
-                  onChange={(event) => onUpdateProgressRange(range.id, { max: event.target.value })}
-                />
-                <input
-                  aria-label="RGB renk"
-                  type="color"
-                  value={range.color}
-                  onChange={(event) => onUpdateProgressRange(range.id, { color: event.target.value })}
-                />
-                <button className="icon-button" title="Dilim sil" onClick={() => onDeleteProgressRange(range.id)}>
-                  <X size={15} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <button className="secondary-action full-width" onClick={onReset}>
-            <RotateCcw size={16} />
-            Veriyi sıfırla
-          </button>
-        </>
+        <button className="secondary-action full-width" onClick={onReset}>
+          <RotateCcw size={16} />
+          Veriyi sıfırla
+        </button>
       )}
     </aside>
   );
@@ -996,16 +1117,25 @@ function BuildingModal({
   onClose,
   onSetWorkProgress,
   onSetWorkQuantity,
+  onSetWorkWeight,
+  onUpdateWorkLabel,
+  onAddBuildingWork,
+  onAddBuildingFile,
   onCreateRequest,
   onApproveRequest,
   onRevision,
+  onAnswerRevision,
   onUpdateRegionBuilding,
+  onUpdateRegionGeometry,
   onDeleteRegion,
 }) {
   const [requestQuantities, setRequestQuantities] = useState({});
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState("");
   const [reviewDrafts, setReviewDrafts] = useState({});
+  const [newWorkLabel, setNewWorkLabel] = useState("");
+  const [adminTaskNote, setAdminTaskNote] = useState("");
+  const [revisionAnswers, setRevisionAnswers] = useState({});
 
   useEffect(() => {
     setRequestQuantities({});
@@ -1016,6 +1146,7 @@ function BuildingModal({
   const progress = getBuildingProgress(building);
   const allowedWorkKeys = getUserWorkPermissions(user, building.works);
   const requestableWorks = building.works.filter((work) => allowedWorkKeys.includes(work.key));
+  const visibleWorks = user.role === "admin" ? building.works : requestableWorks;
   const requestItems = requestableWorks
     .map((work) => ({
       workKey: work.key,
@@ -1039,6 +1170,23 @@ function BuildingModal({
     reader.readAsDataURL(file);
   }
 
+  function handleBuildingFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () =>
+      onAddBuildingFile(building.id, {
+        id: `FILE-${Date.now()}`,
+        name: file.name,
+        type: file.type,
+        data: String(reader.result),
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: user.name,
+      });
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  }
+
   function submitRequest(event) {
     event.preventDefault();
     if (!canSubmit) return;
@@ -1051,6 +1199,38 @@ function BuildingModal({
     setNote("");
     setPhoto("");
     setRequestQuantities({});
+  }
+
+  function submitAdminTask(event) {
+    event.preventDefault();
+    if (!adminTaskNote.trim()) return;
+    onCreateRequest({
+      buildingId: building.id,
+      items: [],
+      note: adminTaskNote,
+      photo: "",
+      adminTask: true,
+    });
+    setAdminTaskNote("");
+  }
+
+  function submitRevisionAnswer(requestId) {
+    const draft = revisionAnswers[requestId] || {};
+    if (!draft.note?.trim() && !draft.photo) return;
+    onAnswerRevision(requestId, draft.note, draft.photo);
+    setRevisionAnswers((previous) => ({ ...previous, [requestId]: { note: "", photo: "" } }));
+  }
+
+  function handleRevisionPhoto(requestId, event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () =>
+      setRevisionAnswers((previous) => ({
+        ...previous,
+        [requestId]: { ...(previous[requestId] || {}), photo: String(reader.result) },
+      }));
+    reader.readAsDataURL(file);
   }
 
   return (
@@ -1083,12 +1263,20 @@ function BuildingModal({
             </div>
 
             <div className="work-list">
-              {building.works.map((work) => {
+              {visibleWorks.map((work) => {
                 const value = Number(building.progress?.[work.key] || 0);
                 return (
                   <div className="work-item" key={work.key}>
                     <div>
-                      <strong>{work.label}</strong>
+                      {user.role === "admin" ? (
+                        <input
+                          className="inline-text-input"
+                          value={work.label}
+                          onChange={(event) => onUpdateWorkLabel(building.id, work.key, event.target.value)}
+                        />
+                      ) : (
+                        <strong>{work.label}</strong>
+                      )}
                       <span>{formatQuantity(work.quantity)} adet/metraj</span>
                     </div>
                     {user.role === "admin" ? (
@@ -1100,6 +1288,16 @@ function BuildingModal({
                             min="0"
                             value={work.quantity}
                             onChange={(event) => onSetWorkQuantity(building.id, work.key, event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          Ağırlık
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={work.weight ?? 0}
+                            onChange={(event) => onSetWorkWeight(building.id, work.key, event.target.value)}
                           />
                         </label>
                         <label className="range-line">
@@ -1123,29 +1321,70 @@ function BuildingModal({
                 );
               })}
             </div>
+            {user.role === "admin" && (
+              <form
+                className="add-work-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  onAddBuildingWork(building.id, newWorkLabel);
+                  setNewWorkLabel("");
+                }}
+              >
+                <input value={newWorkLabel} onChange={(event) => setNewWorkLabel(event.target.value)} placeholder="Ek iş kalemi adı" />
+                <button className="secondary-action" type="submit">
+                  <Plus size={16} />
+                  Ekle
+                </button>
+              </form>
+            )}
           </section>
 
           <section className="request-panel">
             {user.role === "admin" && region && (
               <div className="admin-box">
-                <label>
-                  Harita bölgesi bina ID eşleşmesi
-                  <select value={region.buildingId} onChange={(event) => onUpdateRegionBuilding(region.id, event.target.value)}>
-                    {buildings.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.code} · {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <span>{regions.length} mor şekil korunuyor.</span>
+                <span>{region.points?.length ? `${region.points.length} noktalı poligon` : "PDF bölgesi"} · {regions.length} harita alanı</span>
                 {region.source === "manual" && (
                   <button className="secondary-action" onClick={() => onDeleteRegion(region.id)}>
                     <X size={16} />
-                    Manuel bölgeyi sil
+                    Harita alanını sil
                   </button>
                 )}
               </div>
+            )}
+
+            {user.role === "admin" && (
+              <>
+                <form className="request-form" onSubmit={submitAdminTask}>
+                  <div className="section-heading flat">
+                    <div>
+                      <span>Süper admin isteği</span>
+                      <strong>{building.code}</strong>
+                    </div>
+                  </div>
+                  <textarea
+                    value={adminTaskNote}
+                    onChange={(event) => setAdminTaskNote(event.target.value)}
+                    placeholder="Formenlere gönderilecek istek"
+                  />
+                  <button className="primary-action" type="submit" disabled={!adminTaskNote.trim()}>
+                    <MessageSquare size={17} />
+                    İstek gönder
+                  </button>
+                </form>
+                <div className="file-panel">
+                  <label className="photo-upload">
+                    <Upload size={17} />
+                    Bina dosyası yükle
+                    <input type="file" onChange={handleBuildingFile} />
+                  </label>
+                  {(building.files || []).map((file) => (
+                    <a className="file-row" key={file.id} href={file.data} download={file.name}>
+                      <FileText size={16} />
+                      <span>{file.name}</span>
+                    </a>
+                  ))}
+                </div>
+              </>
             )}
 
             {user.role !== "admin" && (
@@ -1209,7 +1448,7 @@ function BuildingModal({
                     const work = building.works.find((buildingWork) => buildingWork.key === item.workKey);
                     return `${work?.label || item.workKey}: ${formatQuantity(item.quantity)}`;
                   })
-                  .join(", ");
+                  .join(", ") || "Süper admin isteği";
                 const draft = reviewDrafts[request.id] || {
                   items: items.map((item) => ({
                     workKey: item.workKey,
@@ -1229,7 +1468,35 @@ function BuildingModal({
                     </p>
                     {request.note && <p className="request-note">{request.note}</p>}
                     {request.photo && <img className="request-photo" src={request.photo} alt="Talep eki" />}
-                    {user.role === "admin" && request.status === "pending" && (
+                    {request.revisionAnswer && <p className="request-note">Formen cevabı: {request.revisionAnswer}</p>}
+                    {request.answerPhoto && <img className="request-photo" src={request.answerPhoto} alt="Revize cevabı eki" />}
+                    {user.role !== "admin" && request.status === "revision" && request.createdBy === user.id && (
+                      <div className="review-controls">
+                        <label>
+                          Revize cevabı
+                          <input
+                            value={revisionAnswers[request.id]?.note || ""}
+                            onChange={(event) =>
+                              setRevisionAnswers((previous) => ({
+                                ...previous,
+                                [request.id]: { ...(previous[request.id] || {}), note: event.target.value },
+                              }))
+                            }
+                            placeholder="Revize için açıklama"
+                          />
+                        </label>
+                        <label className="photo-upload">
+                          <Upload size={17} />
+                          Fotoğraf ekle
+                          <input type="file" accept="image/*" onChange={(event) => handleRevisionPhoto(request.id, event)} />
+                        </label>
+                        <button className="primary-action" onClick={() => submitRevisionAnswer(request.id)}>
+                          <MessageSquare size={17} />
+                          Cevapla
+                        </button>
+                      </div>
+                    )}
+                    {user.role === "admin" && ["pending", "answered"].includes(request.status) && (
                       <div className="review-controls">
                         <label>
                           Onaylanan işler
@@ -1300,15 +1567,21 @@ function BuildingModal({
   );
 }
 
-function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, onOpenBuilding }) {
+function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, onAnswerRevision, onOpenBuilding }) {
   const [status, setStatus] = useState("all");
   const [drafts, setDrafts] = useState({});
+  const [answers, setAnswers] = useState({});
 
-  const visible = requests.filter((request) => {
-    const mine = user.role === "admin" || request.createdBy === user.id;
-    const matchesStatus = status === "all" || request.status === status;
-    return mine && matchesStatus;
-  });
+  const visible = requests
+    .filter((request) => {
+      const mine = user.role === "admin" || request.createdBy === user.id || (request.adminTask && canAccess(user, request.buildingId));
+      const matchesStatus = status === "all" || request.status === status;
+      return mine && matchesStatus;
+    })
+    .sort((a, b) => {
+      const order = { pending: 0, answered: 1, revision: 2, approved: 3 };
+      return (order[a.status] ?? 9) - (order[b.status] ?? 9) || new Date(b.createdAt) - new Date(a.createdAt);
+    });
 
   return (
     <main className="page-panel">
@@ -1318,7 +1591,7 @@ function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, o
           <p>{visible.length} kayıt</p>
         </div>
         <div className="segmented">
-          {["all", "pending", "revision", "approved"].map((item) => (
+          {["all", "pending", "answered", "revision", "approved"].map((item) => (
             <button key={item} className={status === item ? "active" : ""} onClick={() => setStatus(item)}>
               {item === "all" ? "Tümü" : statusLabels[item]}
             </button>
@@ -1336,7 +1609,7 @@ function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, o
               const work = building?.works.find((buildingWork) => buildingWork.key === item.workKey);
               return `${work?.label || item.workKey}: ${formatQuantity(item.quantity)}`;
             })
-            .join(", ");
+            .join(", ") || "Süper admin isteği";
           const draft = drafts[request.id] || {
             items: items.map((item) => ({
               workKey: item.workKey,
@@ -1360,7 +1633,20 @@ function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, o
                   <Eye size={16} />
                   Aç
                 </button>
-                {user.role === "admin" && request.status === "pending" && (
+                {user.role !== "admin" && request.status === "revision" && request.createdBy === user.id && (
+                  <>
+                    <input
+                      value={answers[request.id] || ""}
+                      onChange={(event) => setAnswers((previous) => ({ ...previous, [request.id]: event.target.value }))}
+                      placeholder="Revize cevabı"
+                    />
+                    <button className="primary-action" onClick={() => onAnswerRevision(request.id, answers[request.id] || "", "")}>
+                      <MessageSquare size={16} />
+                      Cevapla
+                    </button>
+                  </>
+                )}
+                {user.role === "admin" && ["pending", "answered"].includes(request.status) && (
                   <>
                     <div className="approval-quantity-list compact">
                       {items.map((item) => {
@@ -1418,8 +1704,12 @@ function BuildingsPanel({
   onOpenBuilding,
   onSetWorkProgress,
   onSetWorkQuantity,
+  onSetWorkWeight,
+  onUpdateWorkLabel,
+  onAddBuildingWork,
 }) {
   const [query, setQuery] = useState("");
+  const [newWorkLabel, setNewWorkLabel] = useState("");
   const filteredBuildings = buildings.filter((building) => {
     const needle = query.trim().toLocaleLowerCase("tr-TR");
     if (!needle) return true;
@@ -1491,15 +1781,34 @@ function BuildingsPanel({
             </div>
           </div>
 
+          <form
+            className="add-work-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onAddBuildingWork(selectedBuilding.id, newWorkLabel);
+              setNewWorkLabel("");
+            }}
+          >
+            <input value={newWorkLabel} onChange={(event) => setNewWorkLabel(event.target.value)} placeholder="Ek iş kalemi adı" />
+            <button className="secondary-action" type="submit">
+              <Plus size={16} />
+              Ekle
+            </button>
+          </form>
+
           <div className="building-admin-work-list">
             {selectedBuilding.works.map((work) => {
-              const value = Number(work.progress || 0);
+              const value = Number(selectedBuilding.progress?.[work.key] || 0);
               return (
                 <article className="building-admin-work-row" key={work.key}>
                   <div>
-                    <strong>{work.label}</strong>
+                    <input
+                      className="inline-text-input"
+                      value={work.label}
+                      onChange={(event) => onUpdateWorkLabel(selectedBuilding.id, work.key, event.target.value)}
+                    />
                     <span>
-                      {work.completed || 0} / {work.quantity || 0} tamamlandı
+                      Ağırlık {work.weight ?? 0}% · {work.quantity || 0} toplam
                     </span>
                   </div>
                   <label>
@@ -1509,6 +1818,16 @@ function BuildingsPanel({
                       min="0"
                       value={work.quantity}
                       onChange={(event) => onSetWorkQuantity(selectedBuilding.id, work.key, event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Ağırlık
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={work.weight ?? 0}
+                      onChange={(event) => onSetWorkWeight(selectedBuilding.id, work.key, event.target.value)}
                     />
                   </label>
                   <label>
@@ -1532,6 +1851,34 @@ function BuildingsPanel({
   );
 }
 
+function LogsPanel({ logs }) {
+  return (
+    <main className="page-panel">
+      <div className="panel-title-row">
+        <div>
+          <h2>Log kayıtları</h2>
+          <p>{logs.length} işlem</p>
+        </div>
+      </div>
+      <div className="log-list">
+        {logs.length === 0 && <div className="empty-state">Henüz kayıt yok.</div>}
+        {logs.map((log) => (
+          <article className="log-row" key={log.id}>
+            <div>
+              <strong>{log.action}</strong>
+              <span>{log.detail}</span>
+            </div>
+            <div>
+              <b>{log.actor}</b>
+              <time>{new Date(log.at).toLocaleString("tr-TR")}</time>
+            </div>
+          </article>
+        ))}
+      </div>
+    </main>
+  );
+}
+
 function UsersPanel({
   users,
   buildings,
@@ -1542,6 +1889,7 @@ function UsersPanel({
   onBulkPermissions,
   onBulkWorkPermissions,
   onAddUser,
+  onDeleteUser,
 }) {
   const [selectedUserId, setSelectedUserId] = useState(users.find((user) => user.role !== "admin")?.id || users[0]?.id);
   const [query, setQuery] = useState("");
@@ -1629,6 +1977,9 @@ function UsersPanel({
                 <option value="foreman">Formen</option>
                 <option value="admin">Süper Admin</option>
               </select>
+              <button className="icon-button danger" title="Kullanıcıyı sil" onClick={() => onDeleteUser(selectedUser.id)}>
+                <Trash2 size={16} />
+              </button>
             </div>
           </div>
 
