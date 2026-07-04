@@ -362,6 +362,27 @@ function App() {
     });
   }
 
+  function deleteBuildingWork(buildingId, workKey) {
+    updateState((draft) => {
+      const building = draft.buildings.find((item) => item.id === buildingId);
+      const work = building?.works.find((item) => item.key === workKey);
+      if (!building || !work) return;
+      building.works = building.works.filter((item) => item.key !== workKey);
+      if (building.progress) delete building.progress[workKey];
+      const stillUsed = draft.buildings.some((item) => item.works.some((buildingWork) => buildingWork.key === workKey));
+      if (!stillUsed) {
+        draft.workItems = draft.workItems.filter((item) => item.key !== workKey);
+        draft.users.forEach((user) => {
+          user.workPermissions = (user.workPermissions || []).filter((key) => key !== workKey);
+        });
+      }
+      draft.requests.forEach((request) => {
+        request.items = (request.items || []).filter((item) => item.workKey !== workKey);
+      });
+      draft.logs.unshift(makeLog(currentUser, "İş kalemi silindi", `${building.code} / ${work.label}`));
+    });
+  }
+
   function addBuildingFile(buildingId, file) {
     updateState((draft) => {
       const building = draft.buildings.find((item) => item.id === buildingId);
@@ -756,6 +777,7 @@ function App() {
           onSetWorkWeight={setWorkWeight}
           onUpdateWorkLabel={updateWorkLabel}
           onAddBuildingWork={addBuildingWork}
+          onDeleteBuildingWork={deleteBuildingWork}
         />
       )}
 
@@ -788,6 +810,7 @@ function App() {
           onSetWorkWeight={setWorkWeight}
           onUpdateWorkLabel={updateWorkLabel}
           onAddBuildingWork={addBuildingWork}
+          onDeleteBuildingWork={deleteBuildingWork}
           onAddBuildingFile={addBuildingFile}
           onCreateRequest={createRequest}
           onApproveRequest={approveRequest}
@@ -1120,6 +1143,7 @@ function BuildingModal({
   onSetWorkWeight,
   onUpdateWorkLabel,
   onAddBuildingWork,
+  onDeleteBuildingWork,
   onAddBuildingFile,
   onCreateRequest,
   onApproveRequest,
@@ -1310,6 +1334,14 @@ function BuildingModal({
                           />
                           <b>{value}%</b>
                         </label>
+                        <button
+                          className="icon-button danger"
+                          title="İşi sil"
+                          type="button"
+                          onClick={() => onDeleteBuildingWork(building.id, work.key)}
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
                     ) : (
                       <div className="inline-progress">
@@ -1707,6 +1739,7 @@ function BuildingsPanel({
   onSetWorkWeight,
   onUpdateWorkLabel,
   onAddBuildingWork,
+  onDeleteBuildingWork,
 }) {
   const [query, setQuery] = useState("");
   const [newWorkLabel, setNewWorkLabel] = useState("");
@@ -1841,6 +1874,14 @@ function BuildingsPanel({
                     />
                   </label>
                   <b>{value}%</b>
+                  <button
+                    className="icon-button danger"
+                    title="İşi sil"
+                    type="button"
+                    onClick={() => onDeleteBuildingWork(selectedBuilding.id, work.key)}
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </article>
               );
             })}

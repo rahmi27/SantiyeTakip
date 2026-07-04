@@ -907,6 +907,11 @@ img {
   gap: 8px;
 }
 
+.admin-work-edit {
+  grid-template-columns: minmax(96px, 1fr) minmax(96px, 1fr) minmax(160px, 1.2fr) auto;
+  align-items: end;
+}
+
 .admin-work-edit label,
 .work-quantity-grid label,
 .approval-quantity-list label,
@@ -1192,7 +1197,12 @@ img {
 .permission-panel,
 .building-admin-list-panel,
 .building-admin-detail {
+  min-width: 0;
   padding: 14px;
+}
+
+.building-admin-list-panel {
+  overflow: hidden;
 }
 
 .building-admin-list {
@@ -1200,6 +1210,8 @@ img {
   grid-auto-flow: column;
   grid-auto-columns: minmax(220px, 280px);
   gap: 8px;
+  width: 100%;
+  max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0 0 4px;
@@ -1277,7 +1289,7 @@ img {
 
 .building-admin-work-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 104px 104px minmax(180px, 260px) 48px;
+  grid-template-columns: minmax(220px, 1fr) 104px 104px minmax(180px, 260px) 48px auto;
   gap: 12px;
   align-items: center;
   padding: 12px;
@@ -1537,6 +1549,7 @@ img {
 
   .work-item,
   .building-admin-work-row,
+  .admin-work-edit,
   .log-row,
   .add-work-form,
   .wide-request,
