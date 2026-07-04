@@ -720,6 +720,7 @@ img {
   display: flex;
   flex-direction: column;
   width: min(1120px, 100%);
+  height: min(900px, 92vh);
   max-height: min(900px, 92vh);
   background: #f6f8fa;
   border: 1px solid rgba(255, 255, 255, 0.55);
@@ -744,13 +745,14 @@ img {
 }
 
 .modal-grid {
+  flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
   gap: 12px;
   min-height: 0;
   min-width: 0;
   padding: 12px;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .work-panel,
@@ -758,10 +760,15 @@ img {
   min-height: 0;
   min-width: 0;
   padding: 14px;
+  overflow: auto;
 }
 
 .work-panel {
-  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.request-panel {
+  overscroll-behavior: contain;
 }
 
 .progress-header {
