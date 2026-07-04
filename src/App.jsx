@@ -778,6 +778,10 @@ function App() {
           onUpdateWorkLabel={updateWorkLabel}
           onAddBuildingWork={addBuildingWork}
           onDeleteBuildingWork={deleteBuildingWork}
+          progressRanges={state.progressRanges}
+          onUpdateProgressRange={updateProgressRange}
+          onAddProgressRange={addProgressRange}
+          onDeleteProgressRange={deleteProgressRange}
         />
       )}
 
@@ -1740,6 +1744,10 @@ function BuildingsPanel({
   onUpdateWorkLabel,
   onAddBuildingWork,
   onDeleteBuildingWork,
+  progressRanges,
+  onUpdateProgressRange,
+  onAddProgressRange,
+  onDeleteProgressRange,
 }) {
   const [query, setQuery] = useState("");
   const [newWorkLabel, setNewWorkLabel] = useState("");
@@ -1812,6 +1820,47 @@ function BuildingsPanel({
               <span>Toplam adet</span>
               <strong>{selectedBuilding.works.reduce((sum, work) => sum + Number(work.quantity || 0), 0)}</strong>
             </div>
+          </div>
+
+          <div className="range-editor building-range-editor">
+            <div className="section-heading flat">
+              <div>
+                <span>Harita renkleri</span>
+                <strong>{progressRanges?.length || 0} dilim</strong>
+              </div>
+              <button className="icon-button" title="Dilim ekle" onClick={onAddProgressRange}>
+                <Plus size={16} />
+              </button>
+            </div>
+            {(progressRanges || defaultProgressRanges).map((range) => (
+              <div className="range-editor-row" key={range.id}>
+                <input
+                  aria-label="Minimum yüzde"
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={range.min}
+                  onChange={(event) => onUpdateProgressRange(range.id, { min: event.target.value })}
+                />
+                <input
+                  aria-label="Maksimum yüzde"
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={range.max}
+                  onChange={(event) => onUpdateProgressRange(range.id, { max: event.target.value })}
+                />
+                <input
+                  aria-label="RGB renk"
+                  type="color"
+                  value={range.color}
+                  onChange={(event) => onUpdateProgressRange(range.id, { color: event.target.value })}
+                />
+                <button className="icon-button" title="Dilim sil" onClick={() => onDeleteProgressRange(range.id)}>
+                  <X size={15} />
+                </button>
+              </div>
+            ))}
           </div>
 
           <form

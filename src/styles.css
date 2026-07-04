@@ -537,7 +537,7 @@ img {
 
 .range-editor-row {
   display: grid;
-  grid-template-columns: 52px 52px 42px 34px;
+  grid-template-columns: 80px 80px 48px 34px;
   gap: 6px;
   align-items: center;
 }
@@ -557,6 +557,10 @@ img {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.building-range-editor {
+  margin-bottom: 14px;
 }
 
 .primary-action,
