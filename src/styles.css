@@ -480,6 +480,15 @@ img {
   pointer-events: none;
 }
 
+.manual-draft-rect {
+  fill: rgba(36, 107, 99, 0.18);
+  stroke: #184d47;
+  stroke-dasharray: 8 5;
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
 .summary-panel {
   display: grid;
   grid-template-columns: minmax(220px, 1.1fr) minmax(340px, 2fr) auto;
@@ -811,6 +820,45 @@ img {
   display: grid;
   gap: 10px;
   margin-top: 14px;
+}
+
+.building-info-editor {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) 110px auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 12px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.building-info-editor.wide {
+  grid-template-columns: 110px minmax(220px, 1fr) 140px;
+}
+
+.building-info-editor label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.building-info-editor input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 8px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .work-item {
@@ -1185,6 +1233,15 @@ img {
   background: #edf1f4;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.segmented.compact {
+  flex-wrap: nowrap;
+}
+
+.segmented.compact button {
+  min-height: 32px;
+  padding: 0 9px;
 }
 
 .request-table {
@@ -1597,6 +1654,8 @@ img {
   .work-item,
   .building-admin-work-row,
   .admin-work-edit,
+  .building-info-editor,
+  .building-info-editor.wide,
   .log-row,
   .add-work-form,
   .wide-request,

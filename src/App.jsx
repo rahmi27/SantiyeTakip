@@ -223,6 +223,7 @@ function App() {
   const [selectedBuildingId, setSelectedBuildingId] = useState(null);
   const [openBuildingId, setOpenBuildingId] = useState(null);
   const [manualMode, setManualMode] = useState(false);
+  const [manualShape, setManualShape] = useState("polygon");
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(1);
 
@@ -383,6 +384,33 @@ function App() {
     });
   }
 
+  function updateBuilding(buildingId, patch) {
+    updateState((draft) => {
+      const building = draft.buildings.find((item) => item.id === buildingId);
+      if (!building) return;
+      Object.assign(building, patch);
+      if (patch.code) building.id = buildingId;
+      draft.logs.unshift(makeLog(currentUser, "Bina bilgisi güncellendi", `${building.code} / ${building.name}`));
+    });
+  }
+
+  function deleteBuilding(buildingId) {
+    updateState((draft) => {
+      const building = draft.buildings.find((item) => item.id === buildingId);
+      if (!building) return;
+      draft.buildings = draft.buildings.filter((item) => item.id !== buildingId);
+      draft.regions = draft.regions.filter((region) => region.buildingId !== buildingId);
+      draft.requests = draft.requests.filter((request) => request.buildingId !== buildingId);
+      draft.users.forEach((user) => {
+        user.permissions = (user.permissions || []).filter((id) => id !== buildingId);
+      });
+      draft.logs.unshift(makeLog(currentUser, "Bina silindi", `${building.code} / ${building.name}`));
+    });
+    setSelectedRegionId(null);
+    setSelectedBuildingId(null);
+    setOpenBuildingId(null);
+  }
+
   function addBuildingFile(buildingId, file) {
     updateState((draft) => {
       const building = draft.buildings.find((item) => item.id === buildingId);
@@ -486,25 +514,38 @@ function App() {
   }
 
   function addManualRegion(region) {
-    const buildingId =
-      (selectedBuildingId && canAccess(currentUser, selectedBuildingId) && selectedBuildingId) ||
-      accessibleBuildings[0]?.id ||
-      state.buildings[0]?.id;
-    if (!buildingId) return;
-
     const regionId = `MANUAL-MOR-${Date.now()}`;
+    let newBuildingId = "";
     updateState((draft) => {
+      const manualCount = draft.buildings.filter((building) => String(building.id).startsWith("M")).length + 1;
+      const code = `M${String(manualCount).padStart(3, "0")}`;
+      newBuildingId = code;
+      draft.buildings.push({
+        id: code,
+        code,
+        name: "YENİ MANUEL BİNA",
+        lineColor: "MANUEL",
+        quantity: 1,
+        source: "manual",
+        works: [],
+        progress: {},
+        files: [],
+      });
       draft.regions.push({
         id: regionId,
         shape: region.points?.length ? "polygon" : "rect",
         source: "manual",
-        buildingId,
+        buildingId: code,
         ...region,
       });
+      draft.users.forEach((user) => {
+        if (user.role === "admin") user.permissions = [...new Set([...(user.permissions || []), code])];
+      });
+      draft.logs.unshift(makeLog(currentUser, "Manuel bina eklendi", code));
     });
     setSelectedRegionId(regionId);
-    setSelectedBuildingId(buildingId);
-    setOpenBuildingId(buildingId);
+    setSelectedBuildingId(newBuildingId);
+    setOpenBuildingId(newBuildingId);
     setManualMode(false);
   }
 
@@ -724,7 +765,9 @@ function App() {
               onZoom={setZoom}
               progressRanges={state.progressRanges}
               manualMode={manualMode}
+              manualShape={manualShape}
               onManualModeChange={setManualMode}
+              onManualShapeChange={setManualShape}
               onManualRegionAdd={addManualRegion}
               onSelect={(region) => {
                 if (!canAccess(currentUser, region.buildingId)) return;
@@ -775,6 +818,8 @@ function App() {
           onSetWorkProgress={setWorkProgress}
           onSetWorkQuantity={setWorkQuantity}
           onSetWorkWeight={setWorkWeight}
+          onUpdateBuilding={updateBuilding}
+          onDeleteBuilding={deleteBuilding}
           onUpdateWorkLabel={updateWorkLabel}
           onAddBuildingWork={addBuildingWork}
           onDeleteBuildingWork={deleteBuildingWork}
@@ -812,6 +857,8 @@ function App() {
           onSetWorkProgress={setWorkProgress}
           onSetWorkQuantity={setWorkQuantity}
           onSetWorkWeight={setWorkWeight}
+          onUpdateBuilding={updateBuilding}
+          onDeleteBuilding={deleteBuilding}
           onUpdateWorkLabel={updateWorkLabel}
           onAddBuildingWork={addBuildingWork}
           onDeleteBuildingWork={deleteBuildingWork}
@@ -937,11 +984,14 @@ function MapPanel({
   onZoom,
   progressRanges,
   manualMode,
+  manualShape,
   onManualModeChange,
+  onManualShapeChange,
   onManualRegionAdd,
   onSelect,
 }) {
   const [draftPoints, setDraftPoints] = useState([]);
+  const [draftRect, setDraftRect] = useState(null);
 
   function getSvgPoint(event) {
     const box = event.currentTarget.getBoundingClientRect();
@@ -952,9 +1002,39 @@ function MapPanel({
   }
 
   function addManualPoint(event) {
-    if (user.role !== "admin" || !manualMode) return;
+    if (user.role !== "admin" || !manualMode || manualShape !== "polygon") return;
     const point = getSvgPoint(event);
     setDraftPoints((previous) => [...previous, point]);
+  }
+
+  function startManualRect(event) {
+    if (user.role !== "admin" || !manualMode || manualShape !== "rect") return;
+    const point = getSvgPoint(event);
+    setDraftRect({ startX: point.x, startY: point.y, endX: point.x, endY: point.y });
+  }
+
+  function moveManualRect(event) {
+    if (!draftRect || user.role !== "admin" || !manualMode || manualShape !== "rect") return;
+    const point = getSvgPoint(event);
+    setDraftRect((previous) => ({ ...previous, endX: point.x, endY: point.y }));
+  }
+
+  function finishManualRect(event) {
+    if (!draftRect || user.role !== "admin" || !manualMode || manualShape !== "rect") return;
+    const point = getSvgPoint(event);
+    const x0 = Math.min(draftRect.startX, point.x);
+    const y0 = Math.min(draftRect.startY, point.y);
+    const x1 = Math.max(draftRect.startX, point.x);
+    const y1 = Math.max(draftRect.startY, point.y);
+    setDraftRect(null);
+    if (x1 - x0 < 8 || y1 - y0 < 8) return;
+    onManualRegionAdd({
+      x: Number((x0 / map.width).toFixed(5)),
+      y: Number((y0 / map.height).toFixed(5)),
+      width: Number(((x1 - x0) / map.width).toFixed(5)),
+      height: Number(((y1 - y0) / map.height).toFixed(5)),
+      pixelBox: [Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1)],
+    });
   }
 
   function finishManualPolygon() {
@@ -966,6 +1046,11 @@ function MapPanel({
       })),
     });
     setDraftPoints([]);
+  }
+
+  function clearManualDraft() {
+    setDraftPoints([]);
+    setDraftRect(null);
   }
 
   function getRegionGeometry(region) {
@@ -984,6 +1069,15 @@ function MapPanel({
     };
   }
 
+  const draftBox = draftRect
+    ? {
+        x: Math.min(draftRect.startX, draftRect.endX),
+        y: Math.min(draftRect.startY, draftRect.endY),
+        width: Math.abs(draftRect.endX - draftRect.startX),
+        height: Math.abs(draftRect.endY - draftRect.startY),
+      }
+    : null;
+
   return (
     <section className="map-section">
       <div className="map-toolbar">
@@ -998,16 +1092,26 @@ function MapPanel({
               onClick={() => onManualModeChange(!manualMode)}
             >
               <Plus size={16} />
-              Poligon çiz
+              Bina çiz
             </button>
           )}
           {manualMode && (
             <>
+              <div className="segmented compact">
+                <button className={manualShape === "rect" ? "active" : ""} onClick={() => onManualShapeChange("rect")}>
+                  Dikdörtgen
+                </button>
+                <button className={manualShape === "polygon" ? "active" : ""} onClick={() => onManualShapeChange("polygon")}>
+                  Poligon
+                </button>
+              </div>
+              {manualShape === "polygon" && (
               <button className="secondary-action" disabled={draftPoints.length < 3} onClick={finishManualPolygon}>
                 <Check size={16} />
                 Bitir
               </button>
-              <button className="icon-button" title="Çizimi temizle" onClick={() => setDraftPoints([])}>
+              )}
+              <button className="icon-button" title="Çizimi temizle" onClick={clearManualDraft}>
                 <X size={16} />
               </button>
             </>
@@ -1037,6 +1141,9 @@ function MapPanel({
             viewBox={`0 0 ${map.width} ${map.height}`}
             preserveAspectRatio="none"
             onClick={addManualPoint}
+            onPointerDown={startManualRect}
+            onPointerMove={moveManualRect}
+            onPointerUp={finishManualRect}
           >
             {regions.map((region) => {
               const building = buildingsById[region.buildingId];
@@ -1074,6 +1181,16 @@ function MapPanel({
                   <circle className="manual-draft-point" key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="7" />
                 ))}
               </>
+            )}
+            {draftBox && (
+              <rect
+                className="manual-draft-rect"
+                x={draftBox.x}
+                y={draftBox.y}
+                width={draftBox.width}
+                height={draftBox.height}
+                rx="2"
+              />
             )}
           </svg>
         </div>
@@ -1145,6 +1262,8 @@ function BuildingModal({
   onSetWorkProgress,
   onSetWorkQuantity,
   onSetWorkWeight,
+  onUpdateBuilding,
+  onDeleteBuilding,
   onUpdateWorkLabel,
   onAddBuildingWork,
   onDeleteBuildingWork,
@@ -1279,6 +1398,28 @@ function BuildingModal({
 
         <div className="modal-grid">
           <section className="work-panel">
+            {user.role === "admin" && (
+              <div className="building-info-editor">
+                <label>
+                  Kod
+                  <input value={building.code} onChange={(event) => onUpdateBuilding(building.id, { code: event.target.value })} />
+                </label>
+                <label>
+                  Bina adı
+                  <input value={building.name} onChange={(event) => onUpdateBuilding(building.id, { name: event.target.value })} />
+                </label>
+                <label>
+                  Hat
+                  <input
+                    value={building.lineColor}
+                    onChange={(event) => onUpdateBuilding(building.id, { lineColor: event.target.value })}
+                  />
+                </label>
+                <button className="icon-button danger" title="Binayı sil" onClick={() => onDeleteBuilding(building.id)}>
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            )}
             <div className="progress-header">
               <div>
                 <span>Genel yüzde</span>
@@ -1741,6 +1882,8 @@ function BuildingsPanel({
   onSetWorkProgress,
   onSetWorkQuantity,
   onSetWorkWeight,
+  onUpdateBuilding,
+  onDeleteBuilding,
   onUpdateWorkLabel,
   onAddBuildingWork,
   onDeleteBuildingWork,
@@ -1801,10 +1944,39 @@ function BuildingsPanel({
                 {selectedBuilding.name} · {selectedBuilding.lineColor}
               </p>
             </div>
-            <button className="secondary-action" onClick={() => onOpenBuilding(selectedBuilding.id)}>
-              <Eye size={16} />
-              Popup aç
-            </button>
+            <div className="detail-actions">
+              <button className="secondary-action" onClick={() => onOpenBuilding(selectedBuilding.id)}>
+                <Eye size={16} />
+                Popup aç
+              </button>
+              <button className="icon-button danger" title="Binayı sil" onClick={() => onDeleteBuilding(selectedBuilding.id)}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div className="building-info-editor wide">
+            <label>
+              Kod
+              <input
+                value={selectedBuilding.code}
+                onChange={(event) => onUpdateBuilding(selectedBuilding.id, { code: event.target.value })}
+              />
+            </label>
+            <label>
+              Bina adı
+              <input
+                value={selectedBuilding.name}
+                onChange={(event) => onUpdateBuilding(selectedBuilding.id, { name: event.target.value })}
+              />
+            </label>
+            <label>
+              Hat
+              <input
+                value={selectedBuilding.lineColor}
+                onChange={(event) => onUpdateBuilding(selectedBuilding.id, { lineColor: event.target.value })}
+              />
+            </label>
           </div>
 
           <div className="building-admin-summary">
