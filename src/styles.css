@@ -748,6 +748,7 @@ img {
   grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
   gap: 12px;
   min-height: 0;
+  min-width: 0;
   padding: 12px;
   overflow: auto;
 }
@@ -755,7 +756,12 @@ img {
 .work-panel,
 .request-panel {
   min-height: 0;
+  min-width: 0;
   padding: 14px;
+}
+
+.work-panel {
+  overflow: hidden;
 }
 
 .progress-header {
@@ -809,6 +815,15 @@ img {
   background: var(--panel-soft);
   border: 1px solid #e1e7ed;
   border-radius: 8px;
+}
+
+.work-item > div {
+  min-width: 0;
+}
+
+.work-panel .work-item {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
 }
 
 .work-item strong {
@@ -914,6 +929,12 @@ img {
 .admin-work-edit {
   grid-template-columns: minmax(96px, 1fr) minmax(96px, 1fr) minmax(160px, 1.2fr) auto;
   align-items: end;
+  min-width: 0;
+}
+
+.work-panel .admin-work-edit {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(130px, 1.2fr) auto;
+  width: 100%;
 }
 
 .admin-work-edit label,
@@ -924,6 +945,21 @@ img {
   grid-template-columns: minmax(0, 1fr) 96px;
   gap: 8px;
   align-items: center;
+}
+
+.work-panel .admin-work-edit label {
+  grid-template-columns: 1fr;
+  gap: 4px;
+  align-items: start;
+}
+
+.work-panel .admin-work-edit .range-line {
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-self: end;
+}
+
+.work-panel .admin-work-edit .icon-button {
+  align-self: end;
 }
 
 .admin-work-edit input[type="number"],
