@@ -546,9 +546,17 @@ img {
 
 .range-editor-row {
   display: grid;
-  grid-template-columns: 80px 80px 48px 34px;
+  grid-template-columns: 24px 80px 80px 48px 34px;
   gap: 6px;
   align-items: center;
+}
+
+.range-swatch {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
 }
 
 .range-editor-row input[type="number"] {

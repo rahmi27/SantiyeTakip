@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import seedData from "./data/siteData.json";
 
-const STORAGE_KEY = "tugay-santiye-state-v5";
+const STORAGE_KEY = "tugay-santiye-state-v6";
 const SESSION_KEY = "tugay-santiye-current-user";
 
 const statusLabels = {
@@ -46,10 +46,12 @@ const initialNewUser = {
 };
 
 const defaultProgressRanges = [
-  { id: "range-0-20", min: 0, max: 20, color: "#d93636", label: "0-20" },
-  { id: "range-20-40", min: 20, max: 40, color: "#e0b428", label: "20-40" },
-  { id: "range-40-100", min: 40, max: 100, color: "#1f9d63", label: "40-100" },
+  { id: "range-0-20", min: 0, max: 20, color: "#ef4444", label: "0-20" },
+  { id: "range-20-40", min: 20, max: 40, color: "#facc15", label: "20-40" },
+  { id: "range-40-100", min: 40, max: 100, color: "#22c55e", label: "40-100" },
 ];
+
+const legacyProgressRangeColors = ["#d93636", "#e0b428", "#1f9d63"];
 
 const textFixes = [
   ["Ä°", "İ"],
@@ -82,13 +84,55 @@ function makeLog(actor, action, detail) {
   };
 }
 
+function safeColor(value, fallback = "#ef4444") {
+  return /^#[0-9a-f]{6}$/i.test(String(value || "")) ? value : fallback;
+}
+
+function sanitizeProgressRanges(ranges) {
+  const source = ranges?.length ? ranges : defaultProgressRanges;
+  const isLegacyDefault =
+    source.length === 3 &&
+    source.every((range, index) => {
+      const currentDefault = defaultProgressRanges[index];
+      return (
+        range.id === currentDefault.id &&
+        Number(range.min) === currentDefault.min &&
+        Number(range.max) === currentDefault.max &&
+        String(range.color).toLowerCase() === legacyProgressRangeColors[index]
+      );
+    });
+  if (isLegacyDefault) return JSON.parse(JSON.stringify(defaultProgressRanges));
+  const cleaned = source
+    .map((range, index) => {
+      const min = clampPercent(range.min);
+      const max = clampPercent(range.max);
+      return {
+        id: range.id || `range-${index}`,
+        min: Math.min(min, max),
+        max: Math.max(min, max),
+        color: safeColor(range.color, defaultProgressRanges[index % defaultProgressRanges.length].color),
+        label: `${Math.min(min, max)}-${Math.max(min, max)}`,
+      };
+    })
+    .sort((a, b) => a.min - b.min || a.max - b.max);
+  return cleaned.length ? cleaned : JSON.parse(JSON.stringify(defaultProgressRanges));
+}
+
+function colorWithAlpha(color, alpha) {
+  const safe = safeColor(color);
+  const r = parseInt(safe.slice(1, 3), 16);
+  const g = parseInt(safe.slice(3, 5), 16);
+  const b = parseInt(safe.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function copySeed() {
   return normalizeState({ ...seedData, progressRanges: seedData.progressRanges || defaultProgressRanges });
 }
 
 function normalizeState(raw) {
   const draft = JSON.parse(JSON.stringify(raw));
-  draft.progressRanges = draft.progressRanges?.length ? draft.progressRanges : defaultProgressRanges;
+  draft.progressRanges = sanitizeProgressRanges(draft.progressRanges);
   draft.logs = draft.logs || [];
   draft.workItems = (draft.workItems || []).map((work) => ({ ...work, label: cleanText(work.label) }));
   draft.buildings = (draft.buildings || []).map((building) => {
@@ -211,8 +255,14 @@ function getRequestItems(request) {
 }
 
 function getProgressRange(progress, ranges) {
-  const sorted = [...(ranges?.length ? ranges : defaultProgressRanges)].sort((a, b) => Number(a.min) - Number(b.min));
-  return sorted.find((range) => progress >= Number(range.min) && progress <= Number(range.max)) || sorted[sorted.length - 1];
+  const sorted = sanitizeProgressRanges(ranges);
+  const value = clampPercent(progress);
+  return (
+    sorted.find((range, index) => {
+      const isLast = index === sorted.length - 1;
+      return value >= Number(range.min) && (isLast ? value <= Number(range.max) : value < Number(range.max));
+    }) || sorted[sorted.length - 1]
+  );
 }
 
 function App() {
@@ -559,19 +609,22 @@ function App() {
 
   function updateProgressRange(rangeId, patch) {
     updateState((draft) => {
-      draft.progressRanges = draft.progressRanges || defaultProgressRanges;
+      draft.progressRanges = sanitizeProgressRanges(draft.progressRanges);
       const range = draft.progressRanges.find((item) => item.id === rangeId);
       if (!range) return;
       Object.assign(range, patch);
       if (patch.min !== undefined) range.min = clampPercent(patch.min);
       if (patch.max !== undefined) range.max = clampPercent(patch.max);
+      if (patch.color !== undefined) range.color = safeColor(patch.color, range.color);
+      if (range.min > range.max) [range.min, range.max] = [range.max, range.min];
       range.label = `${range.min}-${range.max}`;
+      draft.progressRanges = sanitizeProgressRanges(draft.progressRanges);
     });
   }
 
   function addProgressRange() {
     updateState((draft) => {
-      draft.progressRanges = draft.progressRanges || defaultProgressRanges;
+      draft.progressRanges = sanitizeProgressRanges(draft.progressRanges);
       draft.progressRanges.push({
         id: `range-${Date.now()}`,
         min: 0,
@@ -584,8 +637,16 @@ function App() {
 
   function deleteProgressRange(rangeId) {
     updateState((draft) => {
-      draft.progressRanges = (draft.progressRanges || defaultProgressRanges).filter((range) => range.id !== rangeId);
+      draft.progressRanges = sanitizeProgressRanges(draft.progressRanges).filter((range) => range.id !== rangeId);
       if (draft.progressRanges.length === 0) draft.progressRanges = JSON.parse(JSON.stringify(defaultProgressRanges));
+      draft.progressRanges = sanitizeProgressRanges(draft.progressRanges);
+    });
+  }
+
+  function resetProgressRanges() {
+    updateState((draft) => {
+      draft.progressRanges = JSON.parse(JSON.stringify(defaultProgressRanges));
+      draft.logs.unshift(makeLog(currentUser, "Harita renkleri sıfırlandı", "Kırmızı / sarı / yeşil"));
     });
   }
 
@@ -827,6 +888,7 @@ function App() {
           onUpdateProgressRange={updateProgressRange}
           onAddProgressRange={addProgressRange}
           onDeleteProgressRange={deleteProgressRange}
+          onResetProgressRanges={resetProgressRanges}
         />
       )}
 
@@ -1155,8 +1217,8 @@ function MapPanel({
               const shapeProps = {
                 className: `hotspot-shape ${selectedRegionId === region.id ? "selected" : ""}`,
                 style: {
-                  fill: allowed ? `${progressRange?.color || "#d91acb"}55` : "rgba(86, 98, 116, 0.08)",
-                  stroke: "#6d747c",
+                  fill: allowed ? colorWithAlpha(progressRange?.color, 0.45) : "rgba(86, 98, 116, 0.08)",
+                  stroke: allowed ? safeColor(progressRange?.color, "#6d747c") : "rgba(86, 98, 116, 0.18)",
                 },
                 onClick: (event) => {
                   event.stopPropagation();
@@ -1891,6 +1953,7 @@ function BuildingsPanel({
   onUpdateProgressRange,
   onAddProgressRange,
   onDeleteProgressRange,
+  onResetProgressRanges,
 }) {
   const [query, setQuery] = useState("");
   const [newWorkLabel, setNewWorkLabel] = useState("");
@@ -2003,9 +2066,13 @@ function BuildingsPanel({
               <button className="icon-button" title="Dilim ekle" onClick={onAddProgressRange}>
                 <Plus size={16} />
               </button>
+              <button className="secondary-action" onClick={onResetProgressRanges}>
+                Varsayılan
+              </button>
             </div>
             {(progressRanges || defaultProgressRanges).map((range) => (
               <div className="range-editor-row" key={range.id}>
+                <span className="range-swatch" style={{ background: safeColor(range.color) }} />
                 <input
                   aria-label="Minimum yüzde"
                   type="number"

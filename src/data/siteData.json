@@ -16688,21 +16688,21 @@
       "id": "range-0-20",
       "min": 0,
       "max": 20,
-      "color": "#d93636",
+      "color": "#ef4444",
       "label": "0-20"
     },
     {
       "id": "range-20-40",
       "min": 20,
       "max": 40,
-      "color": "#e0b428",
+      "color": "#facc15",
       "label": "20-40"
     },
     {
       "id": "range-40-100",
       "min": 40,
       "max": 100,
-      "color": "#1f9d63",
+      "color": "#22c55e",
       "label": "40-100"
     }
   ]
