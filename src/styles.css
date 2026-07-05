@@ -3,24 +3,24 @@
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.45;
-  color: #10233d;
-  background: #c9d9ec;
+  color: #10243f;
+  background: #b8cbe1;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --panel: #e7f0fb;
-  --panel-strong: #f2f7fd;
-  --panel-soft: #d8e7f7;
-  --line: #9bb2cf;
-  --text-soft: #526a88;
-  --ink: #10233d;
-  --accent: #1f64c8;
-  --accent-strong: #164a9b;
+  --panel: #dbe7f5;
+  --panel-strong: #eef4fb;
+  --panel-soft: #cbdcf0;
+  --line: #8fa8c4;
+  --text-soft: #52677f;
+  --ink: #10243f;
+  --accent: #2563eb;
+  --accent-strong: #123b74;
   --magenta: #7257c7;
   --good: #16a34a;
   --mid: #d69e12;
   --low: #dc3d36;
-  --info: #1f64c8;
-  --shadow: 0 18px 46px rgba(25, 70, 128, 0.2);
+  --info: #2563eb;
+  --shadow: 0 18px 46px rgba(18, 59, 116, 0.22);
 }
 
 * {
@@ -31,12 +31,12 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #c9d9ec;
+  background: #b8cbe1;
   overflow: hidden;
 }
 
 body:has(.theme-dark) {
-  background: #050608;
+  background: #050914;
 }
 
 button,
@@ -69,21 +69,21 @@ img {
 }
 
 .theme-dark {
-  color: #e6edf6;
-  background: #050608;
-  --panel: #0d1117;
-  --panel-strong: #151b23;
-  --panel-soft: #101820;
-  --line: #263341;
-  --text-soft: #9caec2;
-  --ink: #eef4fb;
-  --accent: #3b82f6;
-  --accent-strong: #78aefc;
+  color: #edf5ff;
+  background: #050914;
+  --panel: #0b1220;
+  --panel-strong: #111827;
+  --panel-soft: #0f1b2d;
+  --line: #26364f;
+  --text-soft: #9fb0c6;
+  --ink: #edf5ff;
+  --accent: #4f8df7;
+  --accent-strong: #8bb8ff;
   --magenta: #8b78df;
   --good: #31c780;
   --mid: #d9a93c;
   --low: #ef625c;
-  --info: #79b2ff;
+  --info: #8bb8ff;
   --shadow: 0 20px 54px rgba(0, 0, 0, 0.48);
 }
 
@@ -96,10 +96,13 @@ img {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  background: color-mix(in srgb, var(--panel-strong) 94%, transparent);
-  border-bottom: 1px solid var(--line);
+  color: #fff;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-strong) 88%, #020817), color-mix(in srgb, var(--accent) 74%, #020817));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 42%, #020817);
   backdrop-filter: blur(12px);
   flex: 0 0 auto;
+  box-shadow: 0 10px 28px rgba(18, 59, 116, 0.18);
 }
 
 .brand-lockup,
@@ -116,7 +119,7 @@ img {
   width: 34px;
   height: 34px;
   color: #fff;
-  background: var(--accent-strong);
+  background: color-mix(in srgb, #ffffff 18%, var(--accent));
   border-radius: 8px;
   flex: 0 0 auto;
 }
@@ -162,8 +165,8 @@ img {
 .tabbar {
   justify-self: center;
   padding: 3px;
-  background: var(--panel-soft);
-  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
 }
 
@@ -177,7 +180,7 @@ img {
   gap: 7px;
   min-height: 32px;
   padding: 0 10px;
-  color: var(--text-soft);
+  color: color-mix(in srgb, #ffffff 82%, var(--accent-strong));
   background: transparent;
   border: 0;
   border-radius: 6px;
@@ -186,15 +189,15 @@ img {
 .tabbar button.active,
 .segmented button.active {
   color: var(--accent-strong);
-  background: var(--panel-strong);
-  box-shadow: 0 1px 6px rgba(30, 64, 175, 0.14);
+  background: color-mix(in srgb, #ffffff 92%, var(--panel-soft));
+  box-shadow: 0 6px 18px rgba(3, 16, 42, 0.2);
 }
 
 .user-chip {
   justify-self: end;
   padding: 4px 5px 4px 9px;
-  background: var(--panel-soft);
-  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
 }
 
@@ -223,6 +226,27 @@ img {
   color: #fff;
   background: var(--accent);
   border-color: var(--accent);
+}
+
+.topbar .icon-button {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.topbar .icon-button:hover,
+.topbar .icon-button.active {
+  color: var(--accent-strong);
+  background: color-mix(in srgb, #ffffff 92%, var(--panel-soft));
+  border-color: color-mix(in srgb, #ffffff 86%, var(--panel-soft));
+}
+
+.theme-dark .topbar .tabbar button.active,
+.theme-dark .topbar .icon-button:hover,
+.theme-dark .topbar .icon-button.active {
+  color: #fff;
+  background: rgba(139, 184, 255, 0.22);
+  border-color: rgba(139, 184, 255, 0.3);
 }
 
 .workspace {
@@ -666,8 +690,9 @@ img {
   min-height: 100vh;
   padding: 20px;
   background:
-    radial-gradient(circle at 22% 10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 34%),
-    linear-gradient(140deg, #9fb7d5, #c6d7eb 46%, #8fa8c9);
+    radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 32%),
+    radial-gradient(circle at 82% 18%, color-mix(in srgb, var(--accent-strong) 22%, transparent), transparent 34%),
+    linear-gradient(140deg, var(--page-bg), color-mix(in srgb, var(--panel) 78%, var(--accent) 22%) 52%, color-mix(in srgb, var(--page-bg) 70%, var(--accent-strong) 30%));
 }
 
 .login-panel {
@@ -805,6 +830,13 @@ img {
   min-width: 0;
   color: var(--text-soft);
   font-size: 12px;
+}
+
+.topbar .brand-lockup h1,
+.topbar .brand-lockup p,
+.topbar .user-chip strong,
+.topbar .user-chip span {
+  color: #fff;
 }
 
 .login-user-list strong {

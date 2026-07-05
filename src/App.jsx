@@ -30,7 +30,7 @@ import {
 import seedData from "./data/siteData.json";
 
 const APP_TITLE = "5. Zırhlı Tugayı Mekanik İşleri Proje Takibi";
-const STORAGE_KEY = "tugay-santiye-state-v11";
+const STORAGE_KEY = "tugay-santiye-state-v12";
 const SESSION_KEY = "tugay-santiye-current-user";
 const SESSION_START_KEY = "tugay-santiye-session-start";
 const THEME_KEY = "tugay-santiye-theme";
@@ -81,26 +81,26 @@ const workCategoryByKey = {
 
 const defaultThemeSettings = {
   light: {
-    panel: "#e7f0fb",
-    panelStrong: "#f2f7fd",
-    panelSoft: "#d8e7f7",
-    line: "#9bb2cf",
-    ink: "#10233d",
-    textSoft: "#526a88",
-    accent: "#1f64c8",
-    accentStrong: "#164a9b",
-    pageBg: "#c9d9ec",
+    panel: "#dbe7f5",
+    panelStrong: "#eef4fb",
+    panelSoft: "#cbdcf0",
+    line: "#8fa8c4",
+    ink: "#10243f",
+    textSoft: "#52677f",
+    accent: "#2563eb",
+    accentStrong: "#123b74",
+    pageBg: "#b8cbe1",
   },
   dark: {
-    panel: "#0d1117",
-    panelStrong: "#151b23",
-    panelSoft: "#101820",
-    line: "#263341",
-    ink: "#eef4fb",
-    textSoft: "#9caec2",
-    accent: "#3b82f6",
-    accentStrong: "#78aefc",
-    pageBg: "#050608",
+    panel: "#0b1220",
+    panelStrong: "#111827",
+    panelSoft: "#0f1b2d",
+    line: "#26364f",
+    ink: "#edf5ff",
+    textSoft: "#9fb0c6",
+    accent: "#4f8df7",
+    accentStrong: "#8bb8ff",
+    pageBg: "#050914",
   },
 };
 
