@@ -13,10 +13,11 @@ import {
   LogOut,
   MapPinned,
   MessageSquare,
+  Moon,
   Plus,
-  RotateCcw,
   Search,
   ShieldCheck,
+  Sun,
   Trash2,
   Upload,
   UserCog,
@@ -26,8 +27,12 @@ import {
 } from "lucide-react";
 import seedData from "./data/siteData.json";
 
-const STORAGE_KEY = "tugay-santiye-state-v6";
+const STORAGE_KEY = "tugay-santiye-state-v7";
 const SESSION_KEY = "tugay-santiye-current-user";
+const SESSION_START_KEY = "tugay-santiye-session-start";
+const THEME_KEY = "tugay-santiye-theme";
+
+const FOREMAN_HIDDEN_WORK_KEYS = ["grup_sayisi"];
 
 const statusLabels = {
   pending: "Onay bekliyor",
@@ -43,6 +48,12 @@ const initialNewUser = {
   role: "foreman",
   permissions: [],
   workPermissions: [],
+};
+
+const initialNewWork = {
+  label: "",
+  quantity: "",
+  weight: "",
 };
 
 const defaultProgressRanges = [
@@ -132,7 +143,7 @@ function copySeed() {
 
 function normalizeState(raw) {
   const draft = JSON.parse(JSON.stringify(raw));
-  draft.progressRanges = sanitizeProgressRanges(draft.progressRanges);
+  draft.progressRanges = JSON.parse(JSON.stringify(defaultProgressRanges));
   draft.logs = draft.logs || [];
   draft.workItems = (draft.workItems || []).map((work) => ({ ...work, label: cleanText(work.label) }));
   draft.buildings = (draft.buildings || []).map((building) => {
@@ -239,6 +250,27 @@ function clampQuantity(value) {
   return Math.max(0, number);
 }
 
+function getWorkCompletedQuantity(building, work) {
+  if (!building || !work || Number(work.quantity) <= 0) return 0;
+  return Math.min(Number(work.quantity), (Number(building.progress?.[work.key] || 0) / 100) * Number(work.quantity));
+}
+
+function getWorkRemainingQuantity(building, work) {
+  return Math.max(0, Number(work?.quantity || 0) - getWorkCompletedQuantity(building, work));
+}
+
+function clampWorkRequestQuantity(building, work, value) {
+  return Math.min(clampQuantity(value), getWorkRemainingQuantity(building, work));
+}
+
+function isForemanHiddenWork(work) {
+  return FOREMAN_HIDDEN_WORK_KEYS.includes(work?.key);
+}
+
+function confirmAction(message) {
+  return window.confirm(message);
+}
+
 function getUserWorkPermissions(user, workItems) {
   if (!user) return [];
   if (user.role === "admin") return workItems.map((work) => work.key);
@@ -276,6 +308,7 @@ function App() {
   const [manualShape, setManualShape] = useState("polygon");
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(1);
+  const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || "light");
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -285,6 +318,10 @@ function App() {
     if (currentUserId) localStorage.setItem(SESSION_KEY, currentUserId);
     else localStorage.removeItem(SESSION_KEY);
   }, [currentUserId]);
+
+  useEffect(() => {
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
 
   const currentUser = state.users.find((user) => user.id === currentUserId);
 
@@ -328,13 +365,26 @@ function App() {
 
   function login(userId) {
     setCurrentUserId(userId);
-    setActiveTab("map");
+    const startedAt = new Date().toISOString();
+    localStorage.setItem(SESSION_START_KEY, startedAt);
     const user = state.users.find((item) => item.id === userId);
+    updateState((draft) => {
+      draft.logs.unshift(makeLog(user, "Giriş yapıldı", startedAt));
+    });
+    setActiveTab("map");
     const firstBuilding = state.buildings.find((building) => canAccess(user, building.id));
     setSelectedBuildingId(firstBuilding?.id || null);
   }
 
   function handleLogout() {
+    const user = currentUser;
+    const startedAt = localStorage.getItem(SESSION_START_KEY);
+    const startedMs = startedAt ? new Date(startedAt).getTime() : Date.now();
+    const minutes = Math.max(0, Math.round((Date.now() - startedMs) / 60000));
+    updateState((draft) => {
+      draft.logs.unshift(makeLog(user, "Çıkış yapıldı", `${minutes} dakika kaldı`));
+    });
+    localStorage.removeItem(SESSION_START_KEY);
     setCurrentUserId(null);
     setSelectedRegionId(null);
     setSelectedBuildingId(null);
@@ -394,8 +444,9 @@ function App() {
     });
   }
 
-  function addBuildingWork(buildingId, label) {
-    const cleanLabel = label.trim();
+  function addBuildingWork(buildingId, workInput) {
+    const payload = typeof workInput === "string" ? { ...initialNewWork, label: workInput } : workInput;
+    const cleanLabel = String(payload?.label || "").trim();
     if (!cleanLabel) return;
     updateState((draft) => {
       const building = draft.buildings.find((item) => item.id === buildingId);
@@ -405,7 +456,12 @@ function App() {
         .replace(/[^a-z0-9ığüşöç]+/gi, "_")
         .replace(/^_+|_+$/g, "");
       const key = `${keyBase || "ek_is"}_${Date.now()}`;
-      building.works.push({ key, label: cleanLabel, quantity: 0, weight: 0 });
+      building.works.push({
+        key,
+        label: cleanLabel,
+        quantity: clampQuantity(payload?.quantity),
+        weight: clampPercent(payload?.weight),
+      });
       building.progress = building.progress || {};
       building.progress[key] = 0;
       draft.workItems.push({ key, label: cleanLabel });
@@ -414,6 +470,7 @@ function App() {
   }
 
   function deleteBuildingWork(buildingId, workKey) {
+    if (!confirmAction("Bu iş kalemini silmek istediğine emin misin?")) return;
     updateState((draft) => {
       const building = draft.buildings.find((item) => item.id === buildingId);
       const work = building?.works.find((item) => item.key === workKey);
@@ -445,6 +502,7 @@ function App() {
   }
 
   function deleteBuilding(buildingId) {
+    if (!confirmAction("Bu binayı ve bağlı harita/talep kayıtlarını silmek istediğine emin misin?")) return;
     updateState((draft) => {
       const building = draft.buildings.find((item) => item.id === buildingId);
       if (!building) return;
@@ -490,22 +548,24 @@ function App() {
     updateState((draft) => {
       const request = draft.requests.find((item) => item.id === requestId);
       if (!request) return;
+      const building = draft.buildings.find((item) => item.id === request.buildingId);
+      if (!building) return;
       request.status = "approved";
       const requestedItems = getRequestItems(request);
       request.items = requestedItems.map((item) => {
+        const work = building.works.find((buildingWork) => buildingWork.key === item.workKey);
         const approved = approvedItems?.find((approvedItem) => approvedItem.workKey === item.workKey);
         return {
           ...item,
-          approvedQuantity: clampQuantity(approved?.approvedQuantity ?? item.quantity),
+          approvedQuantity: work ? clampWorkRequestQuantity(building, work, approved?.approvedQuantity ?? item.quantity) : 0,
         };
       });
       request.adminNote = note || "";
+      request.revisionReason = "";
       request.reviewedAt = new Date().toISOString();
       request.reviewedBy = currentUser.name;
       request.adminTask = false;
 
-      const building = draft.buildings.find((item) => item.id === request.buildingId);
-      if (!building) return;
       building.progress = building.progress || {};
       request.items.forEach((item) => {
         const work = building.works.find((buildingWork) => buildingWork.key === item.workKey);
@@ -523,16 +583,30 @@ function App() {
       if (!request) return;
       request.status = "revision";
       request.adminNote = note || "Revize gerekli";
+      request.revisionReason = note || "Revize gerekli";
       request.reviewedAt = new Date().toISOString();
       request.reviewedBy = currentUser.name;
       draft.logs.unshift(makeLog(currentUser, "Revize istendi", `${request.buildingId} / ${request.id}`));
     });
   }
 
-  function answerRevision(requestId, answer, photo) {
+  function answerRevision(requestId, answer, photo, updatedItems) {
     updateState((draft) => {
       const request = draft.requests.find((item) => item.id === requestId);
       if (!request) return;
+      const building = draft.buildings.find((item) => item.id === request.buildingId);
+      if (building && updatedItems?.length) {
+        request.items = updatedItems
+          .map((item) => {
+            const work = building.works.find((buildingWork) => buildingWork.key === item.workKey);
+            if (!work) return null;
+            return {
+              ...item,
+              quantity: clampWorkRequestQuantity(building, work, item.quantity),
+            };
+          })
+          .filter(Boolean);
+      }
       request.status = "answered";
       request.revisionAnswer = answer || "";
       request.answerPhoto = photo || "";
@@ -600,6 +674,7 @@ function App() {
   }
 
   function deleteRegion(regionId) {
+    if (!confirmAction("Bu harita alanını silmek istediğine emin misin?")) return;
     updateState((draft) => {
       draft.regions = draft.regions.filter((region) => region.id !== regionId);
     });
@@ -636,6 +711,7 @@ function App() {
   }
 
   function deleteProgressRange(rangeId) {
+    if (!confirmAction("Bu renk dilimini silmek istediğine emin misin?")) return;
     updateState((draft) => {
       draft.progressRanges = sanitizeProgressRanges(draft.progressRanges).filter((range) => range.id !== rangeId);
       if (draft.progressRanges.length === 0) draft.progressRanges = JSON.parse(JSON.stringify(defaultProgressRanges));
@@ -676,7 +752,8 @@ function App() {
     updateState((draft) => {
       const user = draft.users.find((item) => item.id === userId);
       if (!user || user.role === "admin") return;
-      user.workPermissions = user.workPermissions || draft.workItems.map((work) => work.key);
+      const assignableWorkKeys = draft.workItems.filter((work) => !isForemanHiddenWork(work)).map((work) => work.key);
+      user.workPermissions = user.workPermissions || assignableWorkKeys;
       const hasPermission = user.workPermissions.includes(workKey);
       user.workPermissions = hasPermission
         ? user.workPermissions.filter((key) => key !== workKey)
@@ -688,7 +765,7 @@ function App() {
     updateState((draft) => {
       const user = draft.users.find((item) => item.id === userId);
       if (!user || user.role === "admin") return;
-      user.workPermissions = mode === "all" ? draft.workItems.map((work) => work.key) : [];
+      user.workPermissions = mode === "all" ? draft.workItems.filter((work) => !isForemanHiddenWork(work)).map((work) => work.key) : [];
     });
   }
 
@@ -726,6 +803,7 @@ function App() {
   }
 
   function deleteUser(userId) {
+    if (!confirmAction("Bu kullanıcıyı silmek istediğine emin misin?")) return;
     updateState((draft) => {
       const user = draft.users.find((item) => item.id === userId);
       if (!user || user.id === currentUser?.id) return;
@@ -739,7 +817,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${theme === "dark" ? "theme-dark" : ""}`}>
       <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-mark">
@@ -784,6 +862,9 @@ function App() {
             <strong>{currentUser.name}</strong>
             <span>{currentUser.role === "admin" ? "Süper Admin" : "Formen"}</span>
           </div>
+          <button className="icon-button" title="Tema değiştir" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+            {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+          </button>
           <button className="icon-button" title="Çıkış yap" onClick={handleLogout}>
             <LogOut size={18} />
           </button>
@@ -796,11 +877,6 @@ function App() {
             user={currentUser}
             buildings={accessibleBuildings}
             requests={state.requests}
-            progressRanges={state.progressRanges}
-            onUpdateProgressRange={updateProgressRange}
-            onAddProgressRange={addProgressRange}
-            onDeleteProgressRange={deleteProgressRange}
-            onReset={resetDemoData}
           />
           <main className="workspace">
             <BuildingSidebar
@@ -884,11 +960,6 @@ function App() {
           onUpdateWorkLabel={updateWorkLabel}
           onAddBuildingWork={addBuildingWork}
           onDeleteBuildingWork={deleteBuildingWork}
-          progressRanges={state.progressRanges}
-          onUpdateProgressRange={updateProgressRange}
-          onAddProgressRange={addProgressRange}
-          onDeleteProgressRange={deleteProgressRange}
-          onResetProgressRanges={resetProgressRanges}
         />
       )}
 
@@ -940,14 +1011,13 @@ function App() {
 
 function LoginScreen({ users, onLogin }) {
   const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin123");
   const [error, setError] = useState("");
 
   function submit(event) {
     event.preventDefault();
-    const user = users.find((item) => item.username === username && item.password === password);
+    const user = users.find((item) => item.username === username);
     if (!user) {
-      setError("Kullanıcı adı veya şifre hatalı.");
+      setError("Kullanıcı adı bulunamadı.");
       return;
     }
     onLogin(user.id);
@@ -970,16 +1040,6 @@ function LoginScreen({ users, onLogin }) {
           <label>
             Kullanıcı adı
             <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-          </label>
-
-          <label>
-            Şifre
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-            />
           </label>
 
           {error && <div className="form-error">{error}</div>}
@@ -1139,6 +1199,7 @@ function MapPanel({
         height: Math.abs(draftRect.endY - draftRect.startY),
       }
     : null;
+  const displayWidth = Math.min(map.width, 1760);
 
   return (
     <section className="map-section">
@@ -1197,7 +1258,7 @@ function MapPanel({
       </div>
 
       <div className="map-scroll">
-        <div className={`map-canvas ${manualMode ? "manual" : ""}`} style={{ width: `${map.width * zoom}px` }}>
+        <div className={`map-canvas ${manualMode ? "manual" : ""}`} style={{ width: `${displayWidth * zoom}px` }}>
           <img src={map.image} alt="TBS-2 PDF haritası" />
           <svg
             viewBox={`0 0 ${map.width} ${map.height}`}
@@ -1218,7 +1279,7 @@ function MapPanel({
                 className: `hotspot-shape ${selectedRegionId === region.id ? "selected" : ""}`,
                 style: {
                   fill: allowed ? colorWithAlpha(progressRange?.color, 0.45) : "rgba(86, 98, 116, 0.08)",
-                  stroke: allowed ? safeColor(progressRange?.color, "#6d747c") : "rgba(86, 98, 116, 0.18)",
+                  stroke: allowed ? "#6d747c" : "rgba(86, 98, 116, 0.18)",
                 },
                 onClick: (event) => {
                   event.stopPropagation();
@@ -1265,11 +1326,6 @@ function SummaryPanel({
   user,
   buildings,
   requests,
-  progressRanges,
-  onUpdateProgressRange,
-  onAddProgressRange,
-  onDeleteProgressRange,
-  onReset,
 }) {
   const progressSum = buildings.reduce((sum, building) => sum + getBuildingProgress(building), 0);
   const average = buildings.length && progressSum > 0 ? Math.max(1, Math.round(progressSum / buildings.length)) : 0;
@@ -1303,12 +1359,6 @@ function SummaryPanel({
           <strong>{user.role === "admin" ? "Admin" : "Formen"}</strong>
         </div>
       </div>
-      {user.role === "admin" && (
-        <button className="secondary-action full-width" onClick={onReset}>
-          <RotateCcw size={16} />
-          Veriyi sıfırla
-        </button>
-      )}
     </aside>
   );
 }
@@ -1342,7 +1392,7 @@ function BuildingModal({
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState("");
   const [reviewDrafts, setReviewDrafts] = useState({});
-  const [newWorkLabel, setNewWorkLabel] = useState("");
+  const [newWork, setNewWork] = useState(initialNewWork);
   const [adminTaskNote, setAdminTaskNote] = useState("");
   const [revisionAnswers, setRevisionAnswers] = useState({});
 
@@ -1354,20 +1404,26 @@ function BuildingModal({
 
   const progress = getBuildingProgress(building);
   const allowedWorkKeys = getUserWorkPermissions(user, building.works);
-  const requestableWorks = building.works.filter((work) => allowedWorkKeys.includes(work.key));
-  const visibleWorks = user.role === "admin" ? building.works : requestableWorks;
+  const visibleWorks =
+    user.role === "admin"
+      ? building.works
+      : building.works.filter((work) => allowedWorkKeys.includes(work.key) && !isForemanHiddenWork(work));
+  const requestableWorks = visibleWorks.filter(
+    (work) => allowedWorkKeys.includes(work.key) && !isForemanHiddenWork(work) && getWorkRemainingQuantity(building, work) > 0,
+  );
   const requestItems = requestableWorks
     .map((work) => ({
       workKey: work.key,
-      quantity: clampQuantity(requestQuantities[work.key]),
+      quantity: clampWorkRequestQuantity(building, work, requestQuantities[work.key]),
     }))
     .filter((item) => item.quantity > 0);
   const canSubmit = user.role !== "admin" && requestItems.length > 0;
 
   function setRequestQuantity(workKey, value) {
+    const work = building.works.find((item) => item.key === workKey);
     setRequestQuantities((previous) => ({
       ...previous,
-      [workKey]: value,
+      [workKey]: work ? clampWorkRequestQuantity(building, work, value) : clampQuantity(value),
     }));
   }
 
@@ -1424,10 +1480,18 @@ function BuildingModal({
   }
 
   function submitRevisionAnswer(requestId) {
+    const request = requests.find((item) => item.id === requestId);
+    if (!request) return;
     const draft = revisionAnswers[requestId] || {};
-    if (!draft.note?.trim() && !draft.photo) return;
-    onAnswerRevision(requestId, draft.note, draft.photo);
-    setRevisionAnswers((previous) => ({ ...previous, [requestId]: { note: "", photo: "" } }));
+    const items =
+      draft.items ||
+      getRequestItems(request).map((item) => ({
+        workKey: item.workKey,
+        quantity: item.quantity,
+      }));
+    if (!draft.note?.trim() && !draft.photo && !draft.items) return;
+    onAnswerRevision(requestId, draft.note, draft.photo, items);
+    setRevisionAnswers((previous) => ({ ...previous, [requestId]: { note: "", photo: "", items: [] } }));
   }
 
   function handleRevisionPhoto(requestId, event) {
@@ -1444,7 +1508,7 @@ function BuildingModal({
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
-      <section className="building-modal">
+      <section className={`building-modal ${user.role !== "admin" ? "foreman-modal" : ""}`}>
         <header className="modal-header">
           <div>
             <span>{region?.id || "Bina kaydı"}</span>
@@ -1496,6 +1560,7 @@ function BuildingModal({
             <div className="work-list">
               {visibleWorks.map((work) => {
                 const value = Number(building.progress?.[work.key] || 0);
+                const remaining = getWorkRemainingQuantity(building, work);
                 return (
                   <div className="work-item" key={work.key}>
                     <div>
@@ -1508,7 +1573,9 @@ function BuildingModal({
                       ) : (
                         <strong>{work.label}</strong>
                       )}
-                      <span>{formatQuantity(work.quantity)} adet/metraj</span>
+                      <span>
+                        Toplam {formatQuantity(work.quantity)} · Kalan {formatQuantity(remaining)}
+                      </span>
                     </div>
                     {user.role === "admin" ? (
                       <div className="admin-work-edit">
@@ -1565,11 +1632,30 @@ function BuildingModal({
                 className="add-work-form"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  onAddBuildingWork(building.id, newWorkLabel);
-                  setNewWorkLabel("");
+                  onAddBuildingWork(building.id, newWork);
+                  setNewWork(initialNewWork);
                 }}
               >
-                <input value={newWorkLabel} onChange={(event) => setNewWorkLabel(event.target.value)} placeholder="Ek iş kalemi adı" />
+                <input
+                  value={newWork.label}
+                  onChange={(event) => setNewWork((previous) => ({ ...previous, label: event.target.value }))}
+                  placeholder="Ek iş kalemi adı"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  value={newWork.quantity}
+                  onChange={(event) => setNewWork((previous) => ({ ...previous, quantity: event.target.value }))}
+                  placeholder="Toplam"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={newWork.weight}
+                  onChange={(event) => setNewWork((previous) => ({ ...previous, weight: event.target.value }))}
+                  placeholder="Ağırlık"
+                />
                 <button className="secondary-action" type="submit">
                   <Plus size={16} />
                   Ekle
@@ -1638,33 +1724,39 @@ function BuildingModal({
                   <div className="empty-state">Bu binada işaretleyebileceğin iş kalemi yok.</div>
                 )}
                 <div className="work-quantity-grid">
-                  {requestableWorks.map((work) => (
-                    <label key={work.key}>
-                      <span>
-                        <strong>{work.label}</strong>
-                        Toplam: {formatQuantity(work.quantity)}
-                      </span>
-                      <input
-                        type="number"
-                        min="0"
-                        max={work.quantity || undefined}
-                        value={requestQuantities[work.key] || ""}
-                        onChange={(event) => setRequestQuantity(work.key, event.target.value)}
-                        placeholder="Yapılan"
-                      />
-                    </label>
-                  ))}
+                  {requestableWorks.map((work) => {
+                    const remaining = getWorkRemainingQuantity(building, work);
+                    return (
+                      <label key={work.key}>
+                        <span>
+                          <strong>{work.label}</strong>
+                          Kalan: {formatQuantity(remaining)}
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          max={remaining || undefined}
+                          value={requestQuantities[work.key] || ""}
+                          onChange={(event) => setRequestQuantity(work.key, event.target.value)}
+                          placeholder="Yapılan"
+                        />
+                      </label>
+                    );
+                  })}
                 </div>
-                <label>
-                  Not
-                  <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Kısa açıklama" />
-                </label>
-                <label className="photo-upload">
-                  <Upload size={17} />
-                  Fotoğraf yükle
-                  <input type="file" accept="image/*" onChange={handlePhoto} />
-                </label>
-                {photo && <img className="photo-preview" src={photo} alt="Talep fotoğrafı" />}
+                <details className="secondary-details">
+                  <summary>Not ve fotoğraf</summary>
+                  <label>
+                    Not
+                    <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Kısa açıklama" />
+                  </label>
+                  <label className="photo-upload">
+                    <Upload size={17} />
+                    Fotoğraf yükle
+                    <input type="file" accept="image/*" onChange={handlePhoto} />
+                  </label>
+                  {photo && <img className="photo-preview" src={photo} alt="Talep fotoğrafı" />}
+                </details>
                 <button className="primary-action" type="submit" disabled={!canSubmit}>
                   <Camera size={17} />
                   Talep gönder
@@ -1695,6 +1787,13 @@ function BuildingModal({
                   })),
                   note: request.adminNote || "",
                 };
+                const answerDraft = revisionAnswers[request.id] || {};
+                const revisionItems =
+                  answerDraft.items ||
+                  items.map((item) => ({
+                    workKey: item.workKey,
+                    quantity: item.quantity,
+                  }));
                 return (
                   <article className="request-card" key={request.id}>
                     <div className="request-card-top">
@@ -1706,19 +1805,59 @@ function BuildingModal({
                       {request.createdByName} · yapılan iş talebi
                     </p>
                     {request.note && <p className="request-note">{request.note}</p>}
+                    {request.revisionReason && <p className="admin-note">Revize sebebi: {request.revisionReason}</p>}
                     {request.photo && <img className="request-photo" src={request.photo} alt="Talep eki" />}
                     {request.revisionAnswer && <p className="request-note">Formen cevabı: {request.revisionAnswer}</p>}
                     {request.answerPhoto && <img className="request-photo" src={request.answerPhoto} alt="Revize cevabı eki" />}
                     {user.role !== "admin" && request.status === "revision" && request.createdBy === user.id && (
                       <div className="review-controls">
                         <label>
+                          Güncel talep miktarı
+                          <div className="approval-quantity-list">
+                            {items.map((item) => {
+                              const work = building.works.find((buildingWork) => buildingWork.key === item.workKey);
+                              const revisionItem = revisionItems.find((draftItem) => draftItem.workKey === item.workKey);
+                              const remaining = work ? getWorkRemainingQuantity(building, work) : 0;
+                              return (
+                                <div key={item.workKey}>
+                                  <span>{work?.label || item.workKey}</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max={remaining || undefined}
+                                    value={revisionItem?.quantity ?? item.quantity}
+                                    onChange={(event) =>
+                                      setRevisionAnswers((previous) => ({
+                                        ...previous,
+                                        [request.id]: {
+                                          ...answerDraft,
+                                          items: revisionItems.map((draftItem) =>
+                                            draftItem.workKey === item.workKey
+                                              ? {
+                                                  ...draftItem,
+                                                  quantity: work
+                                                    ? clampWorkRequestQuantity(building, work, event.target.value)
+                                                    : clampQuantity(event.target.value),
+                                                }
+                                              : draftItem,
+                                          ),
+                                        },
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </label>
+                        <label>
                           Revize cevabı
                           <input
-                            value={revisionAnswers[request.id]?.note || ""}
+                            value={answerDraft.note || ""}
                             onChange={(event) =>
                               setRevisionAnswers((previous) => ({
                                 ...previous,
-                                [request.id]: { ...(previous[request.id] || {}), note: event.target.value },
+                                [request.id]: { ...(previous[request.id] || {}), note: event.target.value, items: revisionItems },
                               }))
                             }
                             placeholder="Revize için açıklama"
@@ -1743,13 +1882,14 @@ function BuildingModal({
                             {items.map((item) => {
                               const work = building.works.find((buildingWork) => buildingWork.key === item.workKey);
                               const approvedItem = draft.items.find((draftItem) => draftItem.workKey === item.workKey);
+                              const remaining = work ? getWorkRemainingQuantity(building, work) : 0;
                               return (
                                 <div key={item.workKey}>
                                   <span>{work?.label || item.workKey}</span>
                                   <input
                                     type="number"
                                     min="0"
-                                    max={work?.quantity || undefined}
+                                    max={remaining || undefined}
                                     value={approvedItem?.approvedQuantity ?? item.quantity}
                                     onChange={(event) =>
                                       setReviewDrafts((previous) => ({
@@ -1808,17 +1948,24 @@ function BuildingModal({
 
 function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, onAnswerRevision, onOpenBuilding }) {
   const [status, setStatus] = useState("all");
+  const [userFilter, setUserFilter] = useState("all");
   const [drafts, setDrafts] = useState({});
   const [answers, setAnswers] = useState({});
 
-  const visible = requests
+  const scopedRequests = requests.filter((request) => {
+    return user.role === "admin" || request.createdBy === user.id || (request.adminTask && canAccess(user, request.buildingId));
+  });
+  const creators = Array.from(
+    new Map(scopedRequests.map((request) => [request.createdBy, { id: request.createdBy, name: request.createdByName }])).values(),
+  ).sort((a, b) => a.name.localeCompare(b.name, "tr-TR"));
+  const visible = scopedRequests
     .filter((request) => {
-      const mine = user.role === "admin" || request.createdBy === user.id || (request.adminTask && canAccess(user, request.buildingId));
       const matchesStatus = status === "all" || request.status === status;
-      return mine && matchesStatus;
+      const matchesUser = userFilter === "all" || request.createdBy === userFilter;
+      return matchesStatus && matchesUser;
     })
     .sort((a, b) => {
-      const order = { pending: 0, answered: 1, revision: 2, approved: 3 };
+      const order = { pending: 0, revision: 1, answered: 2, approved: 3 };
       return (order[a.status] ?? 9) - (order[b.status] ?? 9) || new Date(b.createdAt) - new Date(a.createdAt);
     });
 
@@ -1829,12 +1976,22 @@ function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, o
           <h2>İlerleme talepleri</h2>
           <p>{visible.length} kayıt</p>
         </div>
-        <div className="segmented">
-          {["all", "pending", "answered", "revision", "approved"].map((item) => (
-            <button key={item} className={status === item ? "active" : ""} onClick={() => setStatus(item)}>
-              {item === "all" ? "Tümü" : statusLabels[item]}
-            </button>
-          ))}
+        <div className="request-filters">
+          <select value={userFilter} onChange={(event) => setUserFilter(event.target.value)} aria-label="Formen filtresi">
+            <option value="all">Tüm formenler</option>
+            {creators.map((creator) => (
+              <option key={creator.id} value={creator.id}>
+                {creator.name}
+              </option>
+            ))}
+          </select>
+          <div className="segmented">
+            {["all", "pending", "answered", "revision", "approved"].map((item) => (
+              <button key={item} className={status === item ? "active" : ""} onClick={() => setStatus(item)}>
+                {item === "all" ? "Tümü" : statusLabels[item]}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -1865,6 +2022,7 @@ function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, o
                 </h3>
                 <p>{request.createdByName} · {new Date(request.createdAt).toLocaleString("tr-TR")}</p>
                 <p>{itemText}</p>
+                {request.revisionReason && <p className="admin-note">Revize sebebi: {request.revisionReason}</p>}
               </div>
               {request.photo && <img src={request.photo} alt="Talep fotoğrafı" />}
               <div className="wide-actions">
@@ -1891,13 +2049,14 @@ function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, o
                       {items.map((item) => {
                         const work = building?.works.find((buildingWork) => buildingWork.key === item.workKey);
                         const approvedItem = draft.items.find((draftItem) => draftItem.workKey === item.workKey);
+                        const remaining = work ? getWorkRemainingQuantity(building, work) : 0;
                         return (
                           <label key={item.workKey}>
                             <span>{work?.label || item.workKey}</span>
                             <input
                               type="number"
                               min="0"
-                              max={work?.quantity || undefined}
+                              max={remaining || undefined}
                               value={approvedItem?.approvedQuantity ?? item.quantity}
                               onChange={(event) =>
                                 setDrafts((previous) => ({
@@ -1917,6 +2076,17 @@ function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, o
                         );
                       })}
                     </div>
+                    <input
+                      className="wide-note-input"
+                      value={draft.note}
+                      onChange={(event) =>
+                        setDrafts((previous) => ({
+                          ...previous,
+                          [request.id]: { ...draft, note: event.target.value },
+                        }))
+                      }
+                      placeholder="Revize sebebi / admin notu"
+                    />
                     <button className="secondary-action" onClick={() => onRevision(request.id, draft.note)}>
                       <Edit3 size={16} />
                       Revize
@@ -1949,21 +2119,15 @@ function BuildingsPanel({
   onUpdateWorkLabel,
   onAddBuildingWork,
   onDeleteBuildingWork,
-  progressRanges,
-  onUpdateProgressRange,
-  onAddProgressRange,
-  onDeleteProgressRange,
-  onResetProgressRanges,
 }) {
   const [query, setQuery] = useState("");
-  const [newWorkLabel, setNewWorkLabel] = useState("");
+  const [newWork, setNewWork] = useState(initialNewWork);
   const filteredBuildings = buildings.filter((building) => {
     const needle = query.trim().toLocaleLowerCase("tr-TR");
     if (!needle) return true;
     return `${building.code} ${building.name} ${building.lineColor}`.toLocaleLowerCase("tr-TR").includes(needle);
   });
-  const selectedBuilding =
-    buildings.find((building) => building.id === selectedBuildingId) || filteredBuildings[0] || buildings[0];
+  const selectedBuilding = buildings.find((building) => building.id === selectedBuildingId);
 
   return (
     <main className="buildings-layout">
@@ -1997,6 +2161,12 @@ function BuildingsPanel({
           })}
         </div>
       </aside>
+
+      {!selectedBuilding && (
+        <section className="building-admin-detail empty-detail">
+          <div className="empty-state">İş kalemlerini düzenlemek için soldan bir bina seç.</div>
+        </section>
+      )}
 
       {selectedBuilding && (
         <section className="building-admin-detail">
@@ -2057,60 +2227,34 @@ function BuildingsPanel({
             </div>
           </div>
 
-          <div className="range-editor building-range-editor">
-            <div className="section-heading flat">
-              <div>
-                <span>Harita renkleri</span>
-                <strong>{progressRanges?.length || 0} dilim</strong>
-              </div>
-              <button className="icon-button" title="Dilim ekle" onClick={onAddProgressRange}>
-                <Plus size={16} />
-              </button>
-              <button className="secondary-action" onClick={onResetProgressRanges}>
-                Varsayılan
-              </button>
-            </div>
-            {(progressRanges || defaultProgressRanges).map((range) => (
-              <div className="range-editor-row" key={range.id}>
-                <span className="range-swatch" style={{ background: safeColor(range.color) }} />
-                <input
-                  aria-label="Minimum yüzde"
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={range.min}
-                  onChange={(event) => onUpdateProgressRange(range.id, { min: event.target.value })}
-                />
-                <input
-                  aria-label="Maksimum yüzde"
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={range.max}
-                  onChange={(event) => onUpdateProgressRange(range.id, { max: event.target.value })}
-                />
-                <input
-                  aria-label="RGB renk"
-                  type="color"
-                  value={range.color}
-                  onChange={(event) => onUpdateProgressRange(range.id, { color: event.target.value })}
-                />
-                <button className="icon-button" title="Dilim sil" onClick={() => onDeleteProgressRange(range.id)}>
-                  <X size={15} />
-                </button>
-              </div>
-            ))}
-          </div>
-
           <form
             className="add-work-form"
             onSubmit={(event) => {
               event.preventDefault();
-              onAddBuildingWork(selectedBuilding.id, newWorkLabel);
-              setNewWorkLabel("");
-            }}
-          >
-            <input value={newWorkLabel} onChange={(event) => setNewWorkLabel(event.target.value)} placeholder="Ek iş kalemi adı" />
+                  onAddBuildingWork(selectedBuilding.id, newWork);
+                  setNewWork(initialNewWork);
+                }}
+              >
+            <input
+              value={newWork.label}
+              onChange={(event) => setNewWork((previous) => ({ ...previous, label: event.target.value }))}
+              placeholder="Ek iş kalemi adı"
+            />
+            <input
+              type="number"
+              min="0"
+              value={newWork.quantity}
+              onChange={(event) => setNewWork((previous) => ({ ...previous, quantity: event.target.value }))}
+              placeholder="Toplam"
+            />
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={newWork.weight}
+              onChange={(event) => setNewWork((previous) => ({ ...previous, weight: event.target.value }))}
+              placeholder="Ağırlık"
+            />
             <button className="secondary-action" type="submit">
               <Plus size={16} />
               Ekle
@@ -2118,8 +2262,10 @@ function BuildingsPanel({
           </form>
 
           <div className="building-admin-work-list">
+            {selectedBuilding.works.length === 0 && <div className="empty-state">Bu bina için iş kalemi yok.</div>}
             {selectedBuilding.works.map((work) => {
               const value = Number(selectedBuilding.progress?.[work.key] || 0);
+              const remaining = getWorkRemainingQuantity(selectedBuilding, work);
               return (
                 <article className="building-admin-work-row" key={work.key}>
                   <div>
@@ -2129,7 +2275,7 @@ function BuildingsPanel({
                       onChange={(event) => onUpdateWorkLabel(selectedBuilding.id, work.key, event.target.value)}
                     />
                     <span>
-                      Ağırlık {work.weight ?? 0}% · {work.quantity || 0} toplam
+                      Ağırlık {work.weight ?? 0}% · Toplam {formatQuantity(work.quantity)} · Kalan {formatQuantity(remaining)}
                     </span>
                   </div>
                   <label>
@@ -2231,6 +2377,7 @@ function UsersPanel({
     return `${building.code} ${building.name} ${building.lineColor}`.toLocaleLowerCase("tr-TR").includes(needle);
   });
   const selectedWorkPermissions = getUserWorkPermissions(selectedUser, workItems);
+  const visibleWorkItems = workItems.filter((work) => !isForemanHiddenWork(work));
 
   function submitNewUser(event) {
     event.preventDefault();
@@ -2339,7 +2486,7 @@ function UsersPanel({
                 <div className="section-heading flat">
                   <div>
                     <span>İş kalemi izinleri</span>
-                    <strong>{selectedWorkPermissions.length} iş</strong>
+                    <strong>{selectedWorkPermissions.filter((key) => visibleWorkItems.some((work) => work.key === key)).length} iş</strong>
                   </div>
                   <div className="permission-actions">
                     <button onClick={() => onBulkWorkPermissions(selectedUser.id, "all")}>Tümü</button>
@@ -2347,7 +2494,7 @@ function UsersPanel({
                   </div>
                 </div>
                 <div className="work-permission-grid">
-                  {workItems.map((work) => {
+                  {visibleWorkItems.map((work) => {
                     const checked = selectedWorkPermissions.includes(work.key);
                     return (
                       <label className={checked ? "checked" : ""} key={work.key}>
