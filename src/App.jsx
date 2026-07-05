@@ -1255,6 +1255,11 @@ function App() {
           buildings={state.buildings}
           selectedBuildingId={selectedBuilding?.id}
           onSelectBuilding={(buildingId) => {
+            if (selectedBuilding?.id === buildingId) {
+              setSelectedBuildingId(null);
+              setSelectedRegionId(null);
+              return;
+            }
             setSelectedBuildingId(buildingId);
             const region = state.regions.find((item) => item.buildingId === buildingId);
             setSelectedRegionId(region?.id || null);
