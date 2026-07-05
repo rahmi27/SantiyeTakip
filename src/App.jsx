@@ -149,6 +149,39 @@ function safeColor(value, fallback = "#ef4444") {
   return /^#[0-9a-f]{6}$/i.test(String(value || "")) ? value : fallback;
 }
 
+function hexToRgb(color) {
+  const safe = safeColor(color);
+  return {
+    r: parseInt(safe.slice(1, 3), 16) / 255,
+    g: parseInt(safe.slice(3, 5), 16) / 255,
+    b: parseInt(safe.slice(5, 7), 16) / 255,
+  };
+}
+
+function colorChannelToLinear(value) {
+  return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+}
+
+function colorLuminance(color) {
+  const { r, g, b } = hexToRgb(color);
+  return 0.2126 * colorChannelToLinear(r) + 0.7152 * colorChannelToLinear(g) + 0.0722 * colorChannelToLinear(b);
+}
+
+function contrastRatio(first, second) {
+  const a = colorLuminance(first);
+  const b = colorLuminance(second);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+function isUsableThemePalette(palette, mode) {
+  const textOnPanel = contrastRatio(palette.ink, palette.panel);
+  const textOnStrongPanel = contrastRatio(palette.ink, palette.panelStrong);
+  const softTextOnPanel = contrastRatio(palette.textSoft, palette.panel);
+  const topbarBase = mode === "light" ? palette.accentStrong : "#020817";
+  const topbarText = contrastRatio("#ffffff", topbarBase);
+  return textOnPanel >= 4.2 && textOnStrongPanel >= 4.2 && softTextOnPanel >= 2.2 && topbarText >= 3;
+}
+
 function sanitizeProgressRanges(ranges) {
   const source = ranges?.length ? ranges : defaultProgressRanges;
   const isLegacyDefault =
@@ -214,12 +247,12 @@ function copySeed() {
 function sanitizeThemeSettings(settings) {
   const source = settings || {};
   return Object.fromEntries(
-    Object.entries(defaultThemeSettings).map(([mode, defaults]) => [
-      mode,
-      Object.fromEntries(
+    Object.entries(defaultThemeSettings).map(([mode, defaults]) => {
+      const palette = Object.fromEntries(
         Object.entries(defaults).map(([key, value]) => [key, safeColor(source[mode]?.[key], value)]),
-      ),
-    ]),
+      );
+      return [mode, isUsableThemePalette(palette, mode) ? palette : { ...defaults }];
+    }),
   );
 }
 
