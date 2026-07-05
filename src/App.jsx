@@ -27,33 +27,12 @@ import {
 } from "lucide-react";
 import seedData from "./data/siteData.json";
 
-const APP_TITLE = "5. Zırhlı tugayı mekanik işleri proje takibi";
-const STORAGE_KEY = "tugay-santiye-state-v9";
+const STORAGE_KEY = "tugay-santiye-state-v7";
 const SESSION_KEY = "tugay-santiye-current-user";
 const SESSION_START_KEY = "tugay-santiye-session-start";
 const THEME_KEY = "tugay-santiye-theme";
 
 const FOREMAN_HIDDEN_WORK_KEYS = ["grup_sayisi"];
-
-const WORK_CATEGORIES = [
-  { id: "sihhi", label: "Sıhhi Tesisat" },
-  { id: "isitma", label: "Isıtma" },
-  { id: "yangin", label: "Yangın" },
-];
-
-const WORK_CATEGORY_BY_KEY = {
-  grup_sayisi: "sihhi",
-  dalgic_pompa: "sihhi",
-  yag_tutucu: "sihhi",
-  vrf_drenaj: "sihhi",
-  ara_istasyon: "sihhi",
-  karot_deligi: "sihhi",
-  petek: "isitma",
-  kollektor: "isitma",
-  sprink: "yangin",
-  yangin_dolabi: "yangin",
-  i_b_a: "yangin",
-};
 
 const statusLabels = {
   pending: "Onay bekliyor",
@@ -73,7 +52,6 @@ const initialNewUser = {
 
 const initialNewWork = {
   label: "",
-  category: "sihhi",
   quantity: "",
   weight: "",
 };
@@ -159,46 +137,6 @@ function colorWithAlpha(color, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-function getWorkCategory(work) {
-  return work?.category || WORK_CATEGORY_BY_KEY[work?.key] || "sihhi";
-}
-
-function getCategoryLabel(categoryId) {
-  return WORK_CATEGORIES.find((category) => category.id === categoryId)?.label || "Sıhhi Tesisat";
-}
-
-function makeStorageSafeState(state) {
-  return {
-    ...state,
-    requests: (state.requests || []).map((request) => ({
-      ...request,
-      photo: typeof request.photo === "string" && request.photo.length > 420000 ? "" : request.photo,
-      answerPhoto: typeof request.answerPhoto === "string" && request.answerPhoto.length > 420000 ? "" : request.answerPhoto,
-    })),
-  };
-}
-
-function readImageFile(file, onLoad) {
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const img = new Image();
-    img.onload = () => {
-      const maxSide = 1280;
-      const ratio = Math.min(1, maxSide / Math.max(img.width, img.height));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(img.width * ratio));
-      canvas.height = Math.max(1, Math.round(img.height * ratio));
-      const context = canvas.getContext("2d");
-      context.drawImage(img, 0, 0, canvas.width, canvas.height);
-      onLoad(canvas.toDataURL("image/jpeg", 0.72));
-    };
-    img.onerror = () => onLoad(String(reader.result || ""));
-    img.src = String(reader.result || "");
-  };
-  reader.readAsDataURL(file);
-}
-
 function copySeed() {
   return normalizeState({ ...seedData, progressRanges: seedData.progressRanges || defaultProgressRanges });
 }
@@ -207,30 +145,21 @@ function normalizeState(raw) {
   const draft = JSON.parse(JSON.stringify(raw));
   draft.progressRanges = JSON.parse(JSON.stringify(defaultProgressRanges));
   draft.logs = draft.logs || [];
-  draft.workItems = (draft.workItems || []).map((work) => ({
-    ...work,
-    label: cleanText(work.label),
-    category: getWorkCategory(work),
-  }));
+  draft.workItems = (draft.workItems || []).map((work) => ({ ...work, label: cleanText(work.label) }));
   draft.buildings = (draft.buildings || []).map((building) => {
     const count = Math.max(1, building.works?.length || 1);
     const works = (building.works || []).map((work) => ({
       ...work,
       label: cleanText(work.label),
-      category: getWorkCategory(work),
       quantity: clampQuantity(work.quantity),
       weight: clampPercent(work.weight ?? Math.round(100 / count)),
     }));
-    const progress = building.progress || {};
-    works.forEach((work) => {
-      if (progress[work.key] === undefined) progress[work.key] = 0;
-    });
     return {
       ...building,
       name: cleanText(building.name),
       lineColor: cleanText(building.lineColor),
       works,
-      progress,
+      progress: building.progress || Object.fromEntries(works.map((work) => [work.key, 0])),
       files: building.files || [],
     };
   });
@@ -382,11 +311,7 @@ function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || "light");
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(makeStorageSafeState(state)));
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
   useEffect(() => {
@@ -397,10 +322,6 @@ function App() {
   useEffect(() => {
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
-
-  useEffect(() => {
-    document.title = APP_TITLE;
-  }, []);
 
   const currentUser = state.users.find((user) => user.id === currentUserId);
 
@@ -538,13 +459,12 @@ function App() {
       building.works.push({
         key,
         label: cleanLabel,
-        category: payload?.category || "sihhi",
         quantity: clampQuantity(payload?.quantity),
         weight: clampPercent(payload?.weight),
       });
       building.progress = building.progress || {};
       building.progress[key] = 0;
-      draft.workItems.push({ key, label: cleanLabel, category: payload?.category || "sihhi" });
+      draft.workItems.push({ key, label: cleanLabel });
       draft.logs.unshift(makeLog(currentUser, "Ek iş kalemi eklendi", `${building.code} / ${cleanLabel}`));
     });
   }
@@ -904,7 +824,7 @@ function App() {
             <MapPinned size={24} />
           </div>
           <div>
-            <h1>{APP_TITLE}</h1>
+            <h1>Tugay Mekanik</h1>
             <p>Saha ilerleme takip paneli</p>
           </div>
         </div>
@@ -920,14 +840,7 @@ function App() {
           </button>
           {currentUser.role === "admin" && (
             <>
-              <button
-                className={activeTab === "buildings" ? "active" : ""}
-                onClick={() => {
-                  setSelectedBuildingId(null);
-                  setSelectedRegionId(null);
-                  setActiveTab("buildings");
-                }}
-              >
+              <button className={activeTab === "buildings" ? "active" : ""} onClick={() => setActiveTab("buildings")}>
                 <Building2 size={17} />
                 Binalar
               </button>
@@ -1097,28 +1010,17 @@ function App() {
 }
 
 function LoginScreen({ users, onLogin }) {
-  const [selectedUserId, setSelectedUserId] = useState(users[0]?.id || "");
-  const [password, setPassword] = useState("");
-  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [username, setUsername] = useState("admin");
   const [error, setError] = useState("");
-  const selectedUser = users.find((user) => user.id === selectedUserId);
 
   function submit(event) {
     event.preventDefault();
-    if (!selectedUser) {
-      setError("Kullanıcı seç.");
+    const user = users.find((item) => item.username === username);
+    if (!user) {
+      setError("Kullanıcı adı bulunamadı.");
       return;
     }
-    if (!passwordOpen) {
-      setPasswordOpen(true);
-      setError("");
-      return;
-    }
-    if (selectedUser.password !== password) {
-      setError("Şifre hatalı.");
-      return;
-    }
-    onLogin(selectedUser.id);
+    onLogin(user.id);
   }
 
   return (
@@ -1130,52 +1032,23 @@ function LoginScreen({ users, onLogin }) {
               <Building2 size={24} />
             </div>
             <div>
-              <h1>{APP_TITLE}</h1>
-              <p>Kullanıcı seç ve giriş yap</p>
+              <h1>Tugay Mekanik</h1>
+              <p>Giriş yap</p>
             </div>
           </div>
 
-          <div className="login-user-list">
-            {users.map((user) => (
-              <button
-                className={selectedUserId === user.id ? "active" : ""}
-                key={user.id}
-                type="button"
-                onClick={() => {
-                  setSelectedUserId(user.id);
-                  setPassword("");
-                  setPasswordOpen(false);
-                  setError("");
-                }}
-              >
-                <CircleUserRound size={18} />
-                <span>
-                  <strong>{user.name}</strong>
-                  <em>{user.role === "admin" ? "Süper Admin" : "Formen"}</em>
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {passwordOpen && (
-            <label>
-              Şifre
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete="current-password"
-                autoFocus
-              />
-            </label>
-          )}
+          <label>
+            Kullanıcı adı
+            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
+          </label>
 
           {error && <div className="form-error">{error}</div>}
 
           <button className="primary-action" type="submit">
             <Lock size={17} />
-            {passwordOpen ? "Giriş yap" : "Devam et"}
+            Giriş
           </button>
+
         </form>
       </section>
     </main>
@@ -1366,20 +1239,19 @@ function MapPanel({
               </button>
             </>
           )}
-          <button className="icon-button" title="Uzaklaştır" onClick={() => onZoom(Math.max(0.45, zoom - 0.5))}>
+          <button className="icon-button" title="Uzaklaştır" onClick={() => onZoom(Math.max(0.45, zoom - 0.15))}>
             <ZoomOut size={17} />
           </button>
           <input
             aria-label="Harita yakınlaştırma"
             type="range"
             min="0.45"
-            max="24"
+            max="3"
             step="0.05"
             value={zoom}
             onChange={(event) => onZoom(Number(event.target.value))}
           />
-          <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-          <button className="icon-button" title="Yakınlaştır" onClick={() => onZoom(Math.min(24, zoom + 0.5))}>
+          <button className="icon-button" title="Yakınlaştır" onClick={() => onZoom(Math.min(3, zoom + 0.15))}>
             <ZoomIn size={17} />
           </button>
         </div>
@@ -1523,13 +1395,11 @@ function BuildingModal({
   const [newWork, setNewWork] = useState(initialNewWork);
   const [adminTaskNote, setAdminTaskNote] = useState("");
   const [revisionAnswers, setRevisionAnswers] = useState({});
-  const [openCategories, setOpenCategories] = useState({});
 
   useEffect(() => {
     setRequestQuantities({});
     setNote("");
     setPhoto("");
-    setOpenCategories({});
   }, [building.id]);
 
   const progress = getBuildingProgress(building);
@@ -1548,14 +1418,6 @@ function BuildingModal({
     }))
     .filter((item) => item.quantity > 0);
   const canSubmit = user.role !== "admin" && requestItems.length > 0;
-  const visibleCategoryGroups = WORK_CATEGORIES.map((category) => ({
-    ...category,
-    works: visibleWorks.filter((work) => getWorkCategory(work) === category.id),
-  })).filter((category) => category.works.length > 0);
-  const requestCategoryGroups = WORK_CATEGORIES.map((category) => ({
-    ...category,
-    works: requestableWorks.filter((work) => getWorkCategory(work) === category.id),
-  })).filter((category) => category.works.length > 0);
 
   function setRequestQuantity(workKey, value) {
     const work = building.works.find((item) => item.key === workKey);
@@ -1565,17 +1427,12 @@ function BuildingModal({
     }));
   }
 
-  function toggleCategory(categoryId) {
-    setOpenCategories((previous) => ({
-      ...previous,
-      [categoryId]: !previous[categoryId],
-    }));
-  }
-
   function handlePhoto(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    readImageFile(file, setPhoto);
+    const reader = new FileReader();
+    reader.onload = () => setPhoto(String(reader.result));
+    reader.readAsDataURL(file);
   }
 
   function handleBuildingFile(event) {
@@ -1640,12 +1497,13 @@ function BuildingModal({
   function handleRevisionPhoto(requestId, event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    readImageFile(file, (dataUrl) =>
+    const reader = new FileReader();
+    reader.onload = () =>
       setRevisionAnswers((previous) => ({
         ...previous,
-        [requestId]: { ...(previous[requestId] || {}), photo: dataUrl },
-      })),
-    );
+        [requestId]: { ...(previous[requestId] || {}), photo: String(reader.result) },
+      }));
+    reader.readAsDataURL(file);
   }
 
   return (
@@ -1653,7 +1511,7 @@ function BuildingModal({
       <section className={`building-modal ${user.role !== "admin" ? "foreman-modal" : ""}`}>
         <header className="modal-header">
           <div>
-            <span>Bina kaydı</span>
+            <span>{region?.id || "Bina kaydı"}</span>
             <h2>
               {building.code} · {building.name}
             </h2>
@@ -1700,86 +1558,74 @@ function BuildingModal({
             </div>
 
             <div className="work-list">
-              {visibleCategoryGroups.map((category) => (
-                <div className="category-section" key={category.id}>
-                  <button className="category-toggle" type="button" onClick={() => toggleCategory(category.id)}>
-                    <span>{category.label}</span>
-                    <b>{category.works.length} kalem</b>
-                  </button>
-                  {openCategories[category.id] && (
-                    <div className="category-work-list">
-                      {category.works.map((work) => {
-                        const value = Number(building.progress?.[work.key] || 0);
-                        const remaining = getWorkRemainingQuantity(building, work);
-                        return (
-                          <div className="work-item" key={work.key}>
-                            <div>
-                              {user.role === "admin" ? (
-                                <input
-                                  className="inline-text-input"
-                                  value={work.label}
-                                  onChange={(event) => onUpdateWorkLabel(building.id, work.key, event.target.value)}
-                                />
-                              ) : (
-                                <strong>{work.label}</strong>
-                              )}
-                              <span>
-                                Toplam {formatQuantity(work.quantity)} · Kalan {formatQuantity(remaining)}
-                              </span>
-                            </div>
-                            {user.role === "admin" ? (
-                              <div className="admin-work-edit">
-                                <label>
-                                  Toplam
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    value={work.quantity}
-                                    onChange={(event) => onSetWorkQuantity(building.id, work.key, event.target.value)}
-                                  />
-                                </label>
-                                <label>
-                                  Ağırlık
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    max="100"
-                                    value={work.weight ?? 0}
-                                    onChange={(event) => onSetWorkWeight(building.id, work.key, event.target.value)}
-                                  />
-                                </label>
-                                <label className="range-line">
-                                  <input
-                                    type="range"
-                                    min="0"
-                                    max="100"
-                                    value={value}
-                                    onChange={(event) => onSetWorkProgress(building.id, work.key, event.target.value)}
-                                  />
-                                  <b>{value}%</b>
-                                </label>
-                                <button
-                                  className="icon-button danger"
-                                  title="İşi sil"
-                                  type="button"
-                                  onClick={() => onDeleteBuildingWork(building.id, work.key)}
-                                >
-                                  <Trash2 size={16} />
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="inline-progress">
-                                <i style={{ width: `${value}%` }} />
-                                <b>{value}%</b>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+              {visibleWorks.map((work) => {
+                const value = Number(building.progress?.[work.key] || 0);
+                const remaining = getWorkRemainingQuantity(building, work);
+                return (
+                  <div className="work-item" key={work.key}>
+                    <div>
+                      {user.role === "admin" ? (
+                        <input
+                          className="inline-text-input"
+                          value={work.label}
+                          onChange={(event) => onUpdateWorkLabel(building.id, work.key, event.target.value)}
+                        />
+                      ) : (
+                        <strong>{work.label}</strong>
+                      )}
+                      <span>
+                        Toplam {formatQuantity(work.quantity)} · Kalan {formatQuantity(remaining)}
+                      </span>
                     </div>
-                  )}
-                </div>
-              ))}
+                    {user.role === "admin" ? (
+                      <div className="admin-work-edit">
+                        <label>
+                          Toplam
+                          <input
+                            type="number"
+                            min="0"
+                            value={work.quantity}
+                            onChange={(event) => onSetWorkQuantity(building.id, work.key, event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          Ağırlık
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={work.weight ?? 0}
+                            onChange={(event) => onSetWorkWeight(building.id, work.key, event.target.value)}
+                          />
+                        </label>
+                        <label className="range-line">
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={value}
+                            onChange={(event) => onSetWorkProgress(building.id, work.key, event.target.value)}
+                          />
+                          <b>{value}%</b>
+                        </label>
+                        <button
+                          className="icon-button danger"
+                          title="İşi sil"
+                          type="button"
+                          onClick={() => onDeleteBuildingWork(building.id, work.key)}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="inline-progress">
+                        <i style={{ width: `${value}%` }} />
+                        <b>{value}%</b>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             {user.role === "admin" && (
               <form
@@ -1795,16 +1641,6 @@ function BuildingModal({
                   onChange={(event) => setNewWork((previous) => ({ ...previous, label: event.target.value }))}
                   placeholder="Ek iş kalemi adı"
                 />
-                <select
-                  value={newWork.category}
-                  onChange={(event) => setNewWork((previous) => ({ ...previous, category: event.target.value }))}
-                >
-                  {WORK_CATEGORIES.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.label}
-                    </option>
-                  ))}
-                </select>
                 <input
                   type="number"
                   min="0"
@@ -1829,12 +1665,15 @@ function BuildingModal({
           </section>
 
           <section className="request-panel">
-            {user.role === "admin" && region?.source === "manual" && (
+            {user.role === "admin" && region && (
               <div className="admin-box">
-                <button className="secondary-action" onClick={() => onDeleteRegion(region.id)}>
-                  <X size={16} />
-                  Harita alanını sil
-                </button>
+                <span>{region.points?.length ? `${region.points.length} noktalı poligon` : "PDF bölgesi"} · {regions.length} harita alanı</span>
+                {region.source === "manual" && (
+                  <button className="secondary-action" onClick={() => onDeleteRegion(region.id)}>
+                    <X size={16} />
+                    Harita alanını sil
+                  </button>
+                )}
               </div>
             )}
 
@@ -1884,38 +1723,26 @@ function BuildingModal({
                 {requestableWorks.length === 0 && (
                   <div className="empty-state">Bu binada işaretleyebileceğin iş kalemi yok.</div>
                 )}
-                <div className="request-category-list">
-                  {requestCategoryGroups.map((category) => (
-                    <div className="category-section" key={category.id}>
-                      <button className="category-toggle" type="button" onClick={() => toggleCategory(category.id)}>
-                        <span>{category.label}</span>
-                        <b>{category.works.length} kalem</b>
-                      </button>
-                      {openCategories[category.id] && (
-                        <div className="work-quantity-grid">
-                          {category.works.map((work) => {
-                            const remaining = getWorkRemainingQuantity(building, work);
-                            return (
-                              <label key={work.key}>
-                                <span>
-                                  <strong>{work.label}</strong>
-                                  Kalan: {formatQuantity(remaining)}
-                                </span>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max={remaining || undefined}
-                                  value={requestQuantities[work.key] || ""}
-                                  onChange={(event) => setRequestQuantity(work.key, event.target.value)}
-                                  placeholder="Yapılan"
-                                />
-                              </label>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                <div className="work-quantity-grid">
+                  {requestableWorks.map((work) => {
+                    const remaining = getWorkRemainingQuantity(building, work);
+                    return (
+                      <label key={work.key}>
+                        <span>
+                          <strong>{work.label}</strong>
+                          Kalan: {formatQuantity(remaining)}
+                        </span>
+                        <input
+                          type="number"
+                          min="0"
+                          max={remaining || undefined}
+                          value={requestQuantities[work.key] || ""}
+                          onChange={(event) => setRequestQuantity(work.key, event.target.value)}
+                          placeholder="Yapılan"
+                        />
+                      </label>
+                    );
+                  })}
                 </div>
                 <details className="secondary-details">
                   <summary>Not ve fotoğraf</summary>
@@ -2303,7 +2130,7 @@ function BuildingsPanel({
   const selectedBuilding = buildings.find((building) => building.id === selectedBuildingId);
 
   return (
-    <main className={`buildings-layout ${selectedBuilding ? "has-detail" : "list-only"}`}>
+    <main className="buildings-layout">
       <aside className="building-admin-list-panel">
         <div className="panel-title-row compact">
           <div>
@@ -2334,6 +2161,12 @@ function BuildingsPanel({
           })}
         </div>
       </aside>
+
+      {!selectedBuilding && (
+        <section className="building-admin-detail empty-detail">
+          <div className="empty-state">İş kalemlerini düzenlemek için soldan bir bina seç.</div>
+        </section>
+      )}
 
       {selectedBuilding && (
         <section className="building-admin-detail">
@@ -2407,16 +2240,6 @@ function BuildingsPanel({
               onChange={(event) => setNewWork((previous) => ({ ...previous, label: event.target.value }))}
               placeholder="Ek iş kalemi adı"
             />
-            <select
-              value={newWork.category}
-              onChange={(event) => setNewWork((previous) => ({ ...previous, category: event.target.value }))}
-            >
-              {WORK_CATEGORIES.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.label}
-                </option>
-              ))}
-            </select>
             <input
               type="number"
               min="0"
