@@ -37,6 +37,30 @@ const THEME_KEY = "tugay-santiye-theme";
 
 const FOREMAN_HIDDEN_WORK_KEYS = ["grup_sayisi"];
 
+function readStorage(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch (error) {
+    console.warn(`Yerel kayıt yazılamadı: ${key}`, error);
+  }
+}
+
+function removeStorage(key) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Tarayıcı depolama erişimi kapalıysa sessiz geç.
+  }
+}
+
 const statusLabels = {
   pending: "Onay bekliyor",
   revision: "Revize istendi",
@@ -244,6 +268,39 @@ function copySeed() {
   return normalizeState({ ...seedData, progressRanges: seedData.progressRanges || defaultProgressRanges });
 }
 
+function sanitizeRegion(region) {
+  const points = Array.isArray(region?.points)
+    ? region.points
+        .map((point) => ({
+          x: Math.min(1, Math.max(0, Number(point?.x))),
+          y: Math.min(1, Math.max(0, Number(point?.y))),
+        }))
+        .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+    : [];
+  if (points.length >= 3) {
+    return {
+      ...region,
+      points,
+      shape: "polygon",
+    };
+  }
+
+  const x = Math.min(1, Math.max(0, Number(region?.x)));
+  const y = Math.min(1, Math.max(0, Number(region?.y)));
+  const width = Math.min(1 - x, Math.max(0.001, Number(region?.width)));
+  const height = Math.min(1 - y, Math.max(0.001, Number(region?.height)));
+  if (![x, y, width, height].every(Number.isFinite)) return null;
+  return {
+    ...region,
+    x,
+    y,
+    width,
+    height,
+    shape: "rect",
+    points: undefined,
+  };
+}
+
 function sanitizeThemeSettings(settings) {
   const source = settings || {};
   return Object.fromEntries(
@@ -258,6 +315,7 @@ function sanitizeThemeSettings(settings) {
 
 function normalizeState(raw) {
   const draft = JSON.parse(JSON.stringify(raw));
+  draft.map = { ...seedData.map, ...(draft.map || {}) };
   draft.progressRanges = sanitizeProgressRanges(draft.progressRanges || defaultProgressRanges);
   draft.themeSettings = sanitizeThemeSettings(draft.themeSettings);
   draft.logs = (draft.logs || []).filter(isSessionLog);
@@ -286,15 +344,12 @@ function normalizeState(raw) {
     workPermissions: user.role === "admin" ? draft.workItems.map((work) => work.key) : user.workPermissions || [],
   }));
   draft.requests = draft.requests || [];
-  draft.regions = (draft.regions || []).map((region) => ({
-    ...region,
-    shape: region.points?.length ? "polygon" : region.shape || "rect",
-  }));
+  draft.regions = (draft.regions || []).map(sanitizeRegion).filter(Boolean);
   return draft;
 }
 
 function loadInitialState() {
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = readStorage(STORAGE_KEY);
   if (!saved) return copySeed();
   try {
     const seed = copySeed();
@@ -510,7 +565,7 @@ function getProgressRange(progress, ranges) {
 
 function App() {
   const [state, setState] = useState(loadInitialState);
-  const [currentUserId, setCurrentUserId] = useState(() => localStorage.getItem(SESSION_KEY));
+  const [currentUserId, setCurrentUserId] = useState(() => readStorage(SESSION_KEY));
   const [activeTab, setActiveTab] = useState("map");
   const [selectedRegionId, setSelectedRegionId] = useState(null);
   const [selectedBuildingId, setSelectedBuildingId] = useState(null);
@@ -519,19 +574,19 @@ function App() {
   const [manualShape, setManualShape] = useState("polygon");
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(1);
-  const [theme, setTheme] = useState(() => localStorage.getItem(THEME_KEY) || "light");
+  const [theme, setTheme] = useState(() => readStorage(THEME_KEY) || "light");
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    writeStorage(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
   useEffect(() => {
-    if (currentUserId) localStorage.setItem(SESSION_KEY, currentUserId);
-    else localStorage.removeItem(SESSION_KEY);
+    if (currentUserId) writeStorage(SESSION_KEY, currentUserId);
+    else removeStorage(SESSION_KEY);
   }, [currentUserId]);
 
   useEffect(() => {
-    localStorage.setItem(THEME_KEY, theme);
+    writeStorage(THEME_KEY, theme);
   }, [theme]);
 
   const currentUser = state.users.find((user) => user.id === currentUserId);
@@ -578,7 +633,7 @@ function App() {
   function login(userId) {
     setCurrentUserId(userId);
     const startedAt = new Date().toISOString();
-    localStorage.setItem(SESSION_START_KEY, startedAt);
+    writeStorage(SESSION_START_KEY, startedAt);
     const user = state.users.find((item) => item.id === userId);
     updateState((draft) => {
       draft.logs.unshift(makeLog(user, "Giriş yapıldı", startedAt));
@@ -590,13 +645,13 @@ function App() {
 
   function handleLogout() {
     const user = currentUser;
-    const startedAt = localStorage.getItem(SESSION_START_KEY);
+    const startedAt = readStorage(SESSION_START_KEY);
     const startedMs = startedAt ? new Date(startedAt).getTime() : Date.now();
     const minutes = Math.max(0, Math.round((Date.now() - startedMs) / 60000));
     updateState((draft) => {
       draft.logs.unshift(makeLog(user, "Çıkış yapıldı", `${minutes} dakika kaldı`));
     });
-    localStorage.removeItem(SESSION_START_KEY);
+    removeStorage(SESSION_START_KEY);
     setCurrentUserId(null);
     setSelectedRegionId(null);
     setSelectedBuildingId(null);
