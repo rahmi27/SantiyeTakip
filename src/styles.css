@@ -3,24 +3,24 @@
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.45;
-  color: #172033;
-  background: #dce8f7;
+  color: #10233d;
+  background: #c9d9ec;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --panel: #f7fbff;
-  --panel-strong: #ffffff;
-  --panel-soft: #eef5ff;
-  --line: #bfd0e6;
-  --text-soft: #5e718d;
-  --ink: #172033;
-  --accent: #2563eb;
-  --accent-strong: #1d4ed8;
-  --magenta: #7c3aed;
+  --panel: #e7f0fb;
+  --panel-strong: #f2f7fd;
+  --panel-soft: #d8e7f7;
+  --line: #9bb2cf;
+  --text-soft: #526a88;
+  --ink: #10233d;
+  --accent: #1f64c8;
+  --accent-strong: #164a9b;
+  --magenta: #7257c7;
   --good: #16a34a;
-  --mid: #facc15;
-  --low: #ef4444;
-  --info: #2563eb;
-  --shadow: 0 18px 46px rgba(30, 64, 175, 0.14);
+  --mid: #d69e12;
+  --low: #dc3d36;
+  --info: #1f64c8;
+  --shadow: 0 18px 46px rgba(25, 70, 128, 0.2);
 }
 
 * {
@@ -31,12 +31,12 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #dce8f7;
-  overflow-x: hidden;
+  background: #c9d9ec;
+  overflow: hidden;
 }
 
 body:has(.theme-dark) {
-  background: #0d1726;
+  background: #050608;
 }
 
 button,
@@ -61,28 +61,28 @@ img {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100dvh;
   background: inherit;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .theme-dark {
-  color: #dce8f7;
-  background: #0d1726;
-  --panel: #111c2d;
-  --panel-strong: #17243a;
-  --panel-soft: #0f2136;
-  --line: #29405f;
-  --text-soft: #9eb2cf;
-  --ink: #e6eefb;
-  --accent: #60a5fa;
-  --accent-strong: #3b82f6;
-  --magenta: #a78bfa;
-  --good: #22c55e;
-  --mid: #facc15;
-  --low: #f87171;
-  --info: #60a5fa;
-  --shadow: 0 20px 54px rgba(0, 0, 0, 0.36);
+  color: #e6edf6;
+  background: #050608;
+  --panel: #0d1117;
+  --panel-strong: #151b23;
+  --panel-soft: #101820;
+  --line: #263341;
+  --text-soft: #9caec2;
+  --ink: #eef4fb;
+  --accent: #3b82f6;
+  --accent-strong: #78aefc;
+  --magenta: #8b78df;
+  --good: #31c780;
+  --mid: #d9a93c;
+  --low: #ef625c;
+  --info: #79b2ff;
+  --shadow: 0 20px 54px rgba(0, 0, 0, 0.48);
 }
 
 .topbar {
@@ -94,7 +94,7 @@ img {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  background: color-mix(in srgb, var(--panel-strong) 92%, transparent);
+  background: color-mix(in srgb, var(--panel-strong) 94%, transparent);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(12px);
 }
@@ -221,7 +221,7 @@ img {
   grid-template-columns: 280px minmax(0, 1fr);
   gap: 10px;
   padding: 10px;
-  height: calc(100vh - 190px);
+  height: calc(100dvh - 184px);
   min-height: 0;
 }
 
@@ -315,7 +315,7 @@ img {
   text-align: left;
   color: var(--ink);
   background: var(--panel-strong);
-  border: 1px solid #dfe6ed;
+  border: 1px solid var(--line);
   border-radius: 8px;
 }
 
@@ -362,7 +362,7 @@ img {
 .big-progress,
 .inline-progress {
   overflow: hidden;
-  background: #edf1f4;
+  background: color-mix(in srgb, var(--panel-soft) 70%, #9ab1cf);
   border-radius: 999px;
 }
 
@@ -421,7 +421,7 @@ img {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: color-mix(in srgb, var(--accent) 8%, #d7e1ee);
+  background: color-mix(in srgb, var(--accent) 12%, #9fb4cf);
 }
 
 .map-canvas {
@@ -642,7 +642,9 @@ img {
   place-items: center;
   min-height: 100vh;
   padding: 20px;
-  background: radial-gradient(circle at top, #cfe1ff, #dce8f7 48%, #c8d7ec);
+  background:
+    radial-gradient(circle at 22% 10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 34%),
+    linear-gradient(140deg, #9fb7d5, #c6d7eb 46%, #8fa8c9);
 }
 
 .login-panel {
@@ -742,6 +744,52 @@ img {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.login-user-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(360px, 48vh);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.login-user-list button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 54px;
+  padding: 10px;
+  color: var(--ink);
+  text-align: left;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.login-user-list button.active {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel-strong));
+  border-color: var(--accent);
+}
+
+.login-user-list strong,
+.login-user-list span {
+  display: block;
+}
+
+.login-user-list span {
+  min-width: 0;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.login-user-list strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .quick-users button {
@@ -876,6 +924,62 @@ img {
   display: grid;
   gap: 10px;
   margin-top: 14px;
+}
+
+.work-category,
+.request-category {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--panel-soft) 82%, var(--panel-strong));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.work-category summary,
+.request-category summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 34px;
+  color: var(--ink);
+  cursor: pointer;
+  list-style: none;
+  font-weight: 800;
+}
+
+.work-category summary::-webkit-details-marker,
+.request-category summary::-webkit-details-marker {
+  display: none;
+}
+
+.work-category summary span,
+.request-category summary span {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.work-category summary b,
+.request-category summary b {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  height: 24px;
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-strong));
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.work-category[open] summary svg,
+.request-category[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.work-category .work-item + .work-item,
+.request-category label + label {
+  margin-top: 8px;
 }
 
 .foreman-modal .work-list {
@@ -1105,6 +1209,10 @@ img {
   border-radius: 8px;
 }
 
+.work-quantity-grid .request-category {
+  padding: 8px;
+}
+
 .work-quantity-grid span,
 .approval-quantity-list span {
   min-width: 0;
@@ -1303,6 +1411,8 @@ img {
 .page-panel {
   margin: 14px;
   padding: 16px;
+  height: calc(100dvh - 96px);
+  overflow: auto;
 }
 
 .panel-title-row {
@@ -1406,8 +1516,14 @@ img {
   grid-template-columns: 330px minmax(0, 1fr);
   gap: 14px;
   padding: 14px;
-  min-height: calc(100vh - 68px);
+  height: calc(100dvh - 58px);
+  min-height: 0;
   align-items: start;
+  overflow: hidden;
+}
+
+.buildings-layout.list-only {
+  grid-template-columns: 1fr;
 }
 
 .user-list-panel,
@@ -1420,7 +1536,11 @@ img {
 
 .building-admin-list-panel {
   overflow: hidden;
-  max-height: calc(100vh - 96px);
+  max-height: calc(100dvh - 86px);
+}
+
+.buildings-layout.list-only .building-admin-list-panel {
+  max-height: calc(100dvh - 86px);
 }
 
 .building-admin-list {
@@ -1430,9 +1550,19 @@ img {
   gap: 8px;
   width: 100%;
   max-width: 100%;
-  max-height: calc(100vh - 204px);
+  max-height: calc(100dvh - 204px);
   overflow: auto;
   padding: 0 4px 0 0;
+}
+
+.buildings-layout.list-only .building-admin-list {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  max-height: calc(100dvh - 204px);
+}
+
+.building-admin-detail {
+  max-height: calc(100dvh - 86px);
+  overflow: auto;
 }
 
 .building-admin-row {

@@ -3,6 +3,7 @@ import {
   Building2,
   Camera,
   Check,
+  ChevronDown,
   ChevronRight,
   CircleUserRound,
   ClipboardList,
@@ -27,7 +28,8 @@ import {
 } from "lucide-react";
 import seedData from "./data/siteData.json";
 
-const STORAGE_KEY = "tugay-santiye-state-v7";
+const APP_TITLE = "5. Zırhlı tugayı mekanik işleri proje takibi";
+const STORAGE_KEY = "tugay-santiye-state-v10";
 const SESSION_KEY = "tugay-santiye-current-user";
 const SESSION_START_KEY = "tugay-santiye-session-start";
 const THEME_KEY = "tugay-santiye-theme";
@@ -54,6 +56,26 @@ const initialNewWork = {
   label: "",
   quantity: "",
   weight: "",
+};
+
+const workCategoryMeta = {
+  sihhi: { label: "Sıhhi", order: 1 },
+  isitma: { label: "Isıtma", order: 2 },
+  yangin: { label: "Yangın", order: 3 },
+};
+
+const workCategoryByKey = {
+  grup_sayisi: "sihhi",
+  dalgic_pompa: "sihhi",
+  yag_tutucu: "sihhi",
+  vrf_drenaj: "sihhi",
+  ara_istasyon: "sihhi",
+  karot_deligi: "sihhi",
+  petek: "isitma",
+  kollektor: "isitma",
+  sprink: "yangin",
+  yangin_dolabi: "yangin",
+  i_b_a: "yangin",
 };
 
 const defaultProgressRanges = [
@@ -151,6 +173,7 @@ function normalizeState(raw) {
     const works = (building.works || []).map((work) => ({
       ...work,
       label: cleanText(work.label),
+      category: getWorkCategory(work),
       quantity: clampQuantity(work.quantity),
       weight: clampPercent(work.weight ?? Math.round(100 / count)),
     }));
@@ -265,6 +288,58 @@ function clampWorkRequestQuantity(building, work, value) {
 
 function isForemanHiddenWork(work) {
   return FOREMAN_HIDDEN_WORK_KEYS.includes(work?.key);
+}
+
+function getWorkCategory(work) {
+  return work?.category || workCategoryByKey[work?.key] || "sihhi";
+}
+
+function groupWorksByCategory(works) {
+  return Object.entries(
+    works.reduce((groups, work) => {
+      const category = getWorkCategory(work);
+      groups[category] = groups[category] || [];
+      groups[category].push(work);
+      return groups;
+    }, {}),
+  )
+    .map(([key, items]) => ({
+      key,
+      label: workCategoryMeta[key]?.label || key,
+      order: workCategoryMeta[key]?.order || 99,
+      items,
+    }))
+    .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, "tr"));
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error || new Error("Dosya okunamadı."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function prepareImageAttachment(file) {
+  if (!file.type.startsWith("image/")) return readFileAsDataUrl(file);
+  const source = await readFileAsDataUrl(file);
+  const image = await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Fotoğraf işlenemedi."));
+    img.src = source;
+  });
+  const maxSide = 1280;
+  const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.72);
 }
 
 function confirmAction(message) {
@@ -824,7 +899,7 @@ function App() {
             <MapPinned size={24} />
           </div>
           <div>
-            <h1>Tugay Mekanik</h1>
+            <h1>{APP_TITLE}</h1>
             <p>Saha ilerleme takip paneli</p>
           </div>
         </div>
@@ -1010,17 +1085,29 @@ function App() {
 }
 
 function LoginScreen({ users, onLogin }) {
-  const [username, setUsername] = useState("admin");
+  const [selectedUserId, setSelectedUserId] = useState(users[0]?.id || "");
+  const [password, setPassword] = useState("");
+  const [passwordStep, setPasswordStep] = useState(false);
   const [error, setError] = useState("");
+  const selectedUser = users.find((user) => user.id === selectedUserId);
 
   function submit(event) {
     event.preventDefault();
-    const user = users.find((item) => item.username === username);
-    if (!user) {
-      setError("Kullanıcı adı bulunamadı.");
+    if (!selectedUser) {
+      setError("Kullanıcı seç.");
       return;
     }
-    onLogin(user.id);
+    if (!passwordStep) {
+      setPasswordStep(true);
+      setPassword("");
+      setError("");
+      return;
+    }
+    if (selectedUser.password && selectedUser.password !== password) {
+      setError("Şifre hatalı.");
+      return;
+    }
+    onLogin(selectedUser.id);
   }
 
   return (
@@ -1032,21 +1119,51 @@ function LoginScreen({ users, onLogin }) {
               <Building2 size={24} />
             </div>
             <div>
-              <h1>Tugay Mekanik</h1>
+              <h1>{APP_TITLE}</h1>
               <p>Giriş yap</p>
             </div>
           </div>
 
-          <label>
-            Kullanıcı adı
-            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-          </label>
+          <div className="login-user-list">
+            {users.map((user) => (
+              <button
+                className={selectedUserId === user.id ? "active" : ""}
+                key={user.id}
+                type="button"
+                onClick={() => {
+                  setSelectedUserId(user.id);
+                  setPasswordStep(false);
+                  setPassword("");
+                  setError("");
+                }}
+              >
+                <CircleUserRound size={18} />
+                <span>
+                  <strong>{user.name}</strong>
+                  {user.role === "admin" ? "Süper Admin" : "Formen"}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {passwordStep && (
+            <label>
+              Şifre
+              <input
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                type="password"
+                autoFocus
+              />
+            </label>
+          )}
 
           {error && <div className="form-error">{error}</div>}
 
           <button className="primary-action" type="submit">
             <Lock size={17} />
-            Giriş
+            {passwordStep ? "Giriş yap" : "Şifre sor"}
           </button>
 
         </form>
@@ -1239,19 +1356,19 @@ function MapPanel({
               </button>
             </>
           )}
-          <button className="icon-button" title="Uzaklaştır" onClick={() => onZoom(Math.max(0.45, zoom - 0.15))}>
+          <button className="icon-button" title="Uzaklaştır" onClick={() => onZoom(Math.max(0.45, zoom - 0.5))}>
             <ZoomOut size={17} />
           </button>
           <input
             aria-label="Harita yakınlaştırma"
             type="range"
             min="0.45"
-            max="3"
+            max="24"
             step="0.05"
             value={zoom}
             onChange={(event) => onZoom(Number(event.target.value))}
           />
-          <button className="icon-button" title="Yakınlaştır" onClick={() => onZoom(Math.min(3, zoom + 0.15))}>
+          <button className="icon-button" title="Yakınlaştır" onClick={() => onZoom(Math.min(24, zoom + 0.5))}>
             <ZoomIn size={17} />
           </button>
         </div>
@@ -1427,29 +1544,36 @@ function BuildingModal({
     }));
   }
 
-  function handlePhoto(event) {
+  async function handlePhoto(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhoto(String(reader.result));
-    reader.readAsDataURL(file);
+    try {
+      setPhoto(await prepareImageAttachment(file));
+    } catch {
+      alert("Fotoğraf yüklenemedi. Daha küçük bir dosya dene.");
+    } finally {
+      event.target.value = "";
+    }
   }
 
-  function handleBuildingFile(event) {
+  async function handleBuildingFile(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () =>
+    try {
+      const data = file.type.startsWith("image/") ? await prepareImageAttachment(file) : await readFileAsDataUrl(file);
       onAddBuildingFile(building.id, {
         id: `FILE-${Date.now()}`,
         name: file.name,
         type: file.type,
-        data: String(reader.result),
+        data,
         uploadedAt: new Date().toISOString(),
         uploadedBy: user.name,
       });
-    reader.readAsDataURL(file);
-    event.target.value = "";
+    } catch {
+      alert("Dosya yüklenemedi. Daha küçük bir dosya dene.");
+    } finally {
+      event.target.value = "";
+    }
   }
 
   function submitRequest(event) {
@@ -1494,16 +1618,20 @@ function BuildingModal({
     setRevisionAnswers((previous) => ({ ...previous, [requestId]: { note: "", photo: "", items: [] } }));
   }
 
-  function handleRevisionPhoto(requestId, event) {
+  async function handleRevisionPhoto(requestId, event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () =>
+    try {
+      const data = await prepareImageAttachment(file);
       setRevisionAnswers((previous) => ({
         ...previous,
-        [requestId]: { ...(previous[requestId] || {}), photo: String(reader.result) },
+        [requestId]: { ...(previous[requestId] || {}), photo: data },
       }));
-    reader.readAsDataURL(file);
+    } catch {
+      alert("Fotoğraf yüklenemedi. Daha küçük bir dosya dene.");
+    } finally {
+      event.target.value = "";
+    }
   }
 
   return (
@@ -1558,11 +1686,18 @@ function BuildingModal({
             </div>
 
             <div className="work-list">
-              {visibleWorks.map((work) => {
-                const value = Number(building.progress?.[work.key] || 0);
-                const remaining = getWorkRemainingQuantity(building, work);
-                return (
-                  <div className="work-item" key={work.key}>
+              {groupWorksByCategory(visibleWorks).map((category) => (
+                <details className="work-category" key={category.key} open>
+                  <summary>
+                    <span>{category.label}</span>
+                    <b>{category.items.length}</b>
+                    <ChevronDown size={16} />
+                  </summary>
+                  {category.items.map((work) => {
+                    const value = Number(building.progress?.[work.key] || 0);
+                    const remaining = getWorkRemainingQuantity(building, work);
+                    return (
+                      <div className="work-item" key={work.key}>
                     <div>
                       {user.role === "admin" ? (
                         <input
@@ -1623,9 +1758,11 @@ function BuildingModal({
                         <b>{value}%</b>
                       </div>
                     )}
-                  </div>
-                );
-              })}
+                      </div>
+                    );
+                  })}
+                </details>
+              ))}
             </div>
             {user.role === "admin" && (
               <form
@@ -1665,15 +1802,12 @@ function BuildingModal({
           </section>
 
           <section className="request-panel">
-            {user.role === "admin" && region && (
+            {user.role === "admin" && region?.source === "manual" && (
               <div className="admin-box">
-                <span>{region.points?.length ? `${region.points.length} noktalı poligon` : "PDF bölgesi"} · {regions.length} harita alanı</span>
-                {region.source === "manual" && (
-                  <button className="secondary-action" onClick={() => onDeleteRegion(region.id)}>
-                    <X size={16} />
-                    Harita alanını sil
-                  </button>
-                )}
+                <button className="secondary-action" onClick={() => onDeleteRegion(region.id)}>
+                  <X size={16} />
+                  Harita alanını sil
+                </button>
               </div>
             )}
 
@@ -1724,25 +1858,34 @@ function BuildingModal({
                   <div className="empty-state">Bu binada işaretleyebileceğin iş kalemi yok.</div>
                 )}
                 <div className="work-quantity-grid">
-                  {requestableWorks.map((work) => {
-                    const remaining = getWorkRemainingQuantity(building, work);
-                    return (
-                      <label key={work.key}>
-                        <span>
-                          <strong>{work.label}</strong>
-                          Kalan: {formatQuantity(remaining)}
-                        </span>
-                        <input
-                          type="number"
-                          min="0"
-                          max={remaining || undefined}
-                          value={requestQuantities[work.key] || ""}
-                          onChange={(event) => setRequestQuantity(work.key, event.target.value)}
-                          placeholder="Yapılan"
-                        />
-                      </label>
-                    );
-                  })}
+                  {groupWorksByCategory(requestableWorks).map((category) => (
+                    <details className="request-category" key={category.key} open>
+                      <summary>
+                        <span>{category.label}</span>
+                        <b>{category.items.length}</b>
+                        <ChevronDown size={16} />
+                      </summary>
+                      {category.items.map((work) => {
+                        const remaining = getWorkRemainingQuantity(building, work);
+                        return (
+                          <label key={work.key}>
+                            <span>
+                              <strong>{work.label}</strong>
+                              Kalan: {formatQuantity(remaining)}
+                            </span>
+                            <input
+                              type="number"
+                              min="0"
+                              max={remaining || undefined}
+                              value={requestQuantities[work.key] || ""}
+                              onChange={(event) => setRequestQuantity(work.key, event.target.value)}
+                              placeholder="Yapılan"
+                            />
+                          </label>
+                        );
+                      })}
+                    </details>
+                  ))}
                 </div>
                 <details className="secondary-details">
                   <summary>Not ve fotoğraf</summary>
@@ -2130,7 +2273,7 @@ function BuildingsPanel({
   const selectedBuilding = buildings.find((building) => building.id === selectedBuildingId);
 
   return (
-    <main className="buildings-layout">
+    <main className={`buildings-layout ${selectedBuilding ? "" : "list-only"}`}>
       <aside className="building-admin-list-panel">
         <div className="panel-title-row compact">
           <div>
@@ -2161,12 +2304,6 @@ function BuildingsPanel({
           })}
         </div>
       </aside>
-
-      {!selectedBuilding && (
-        <section className="building-admin-detail empty-detail">
-          <div className="empty-state">İş kalemlerini düzenlemek için soldan bir bina seç.</div>
-        </section>
-      )}
 
       {selectedBuilding && (
         <section className="building-admin-detail">

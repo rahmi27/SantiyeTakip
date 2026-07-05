@@ -34,6 +34,25 @@ def as_number(value):
         return 0
 
 
+WORK_CATEGORY_BY_KEY = {
+    "grup_sayisi": "sihhi",
+    "dalgic_pompa": "sihhi",
+    "yag_tutucu": "sihhi",
+    "vrf_drenaj": "sihhi",
+    "ara_istasyon": "sihhi",
+    "karot_deligi": "sihhi",
+    "petek": "isitma",
+    "kollektor": "isitma",
+    "sprink": "yangin",
+    "yangin_dolabi": "yangin",
+    "i_b_a": "yangin",
+}
+
+
+def work_category(key: str) -> str:
+    return WORK_CATEGORY_BY_KEY.get(key, "sihhi")
+
+
 def read_buildings():
     wb = openpyxl.load_workbook(SOURCE_XLSX, data_only=True, read_only=True)
     ws = wb.worksheets[0]
@@ -70,9 +89,13 @@ def read_buildings():
             quantity = as_number(ws.cell(row_index, column_index).value)
             if quantity <= 0:
                 continue
-            works.append({"key": key, "label": label, "quantity": quantity})
+            works.append({"key": key, "label": label, "quantity": quantity, "category": work_category(key)})
             progress[key] = 0
             work_items_by_key[key] = label
+
+        equal_weight = round(100 / max(1, len(works)))
+        for work in works:
+            work["weight"] = equal_weight
 
         buildings.append(
             {
@@ -86,11 +109,37 @@ def read_buildings():
             }
         )
 
-    work_items = [{"key": key, "label": label} for key, label in sorted(work_items_by_key.items())]
+    work_items = [
+        {"key": key, "label": label, "category": work_category(key)}
+        for key, label in sorted(work_items_by_key.items())
+    ]
     return buildings, work_items
 
 
-def detect_magenta_regions():
+def convex_hull(points):
+    points = sorted(set(points))
+    if len(points) <= 1:
+        return points
+
+    def cross(origin, a, b):
+        return (a[0] - origin[0]) * (b[1] - origin[1]) - (a[1] - origin[1]) * (b[0] - origin[0])
+
+    lower = []
+    for point in points:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], point) <= 0:
+            lower.pop()
+        lower.append(point)
+
+    upper = []
+    for point in reversed(points):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], point) <= 0:
+            upper.pop()
+        upper.append(point)
+
+    return lower[:-1] + upper[:-1]
+
+
+def detect_magenta_regions(target_count):
     image = Image.open(MAP_IMAGE).convert("RGB")
     width, height = image.size
     mask = Image.new("L", (width, height), 0)
@@ -105,7 +154,7 @@ def detect_magenta_regions():
 
     data = mask.tobytes()
     seen = bytearray(width * height)
-    regions = []
+    components = []
 
     for index, value in enumerate(data):
         if value == 0 or seen[index]:
@@ -118,12 +167,14 @@ def detect_magenta_regions():
         max_x = 0
         max_y = 0
         count = 0
+        component_points = []
 
         while queue:
             current = queue.pop()
             count += 1
             x = current % width
             y = current // width
+            component_points.append((x, y))
             min_x = min(min_x, x)
             max_x = max(max_x, x)
             min_y = min(min_y, y)
@@ -150,21 +201,49 @@ def detect_magenta_regions():
         box_width = max_x - min_x + 1
         box_height = max_y - min_y + 1
 
-        regions.append(
+        boundary = []
+        step = max(1, int(count ** 0.5 // 4))
+        sample_index = 0
+        for x, y in component_points:
+            is_edge = False
+            for next_y in (y - 1, y, y + 1):
+                for next_x in (x - 1, x, x + 1):
+                    if next_x < 0 or next_y < 0 or next_x >= width or next_y >= height:
+                        is_edge = True
+                        continue
+                    if data[next_y * width + next_x] == 0:
+                        is_edge = True
+            if is_edge:
+                sample_index += 1
+                if sample_index % step == 0:
+                    boundary.append((x, y))
+
+        hull = convex_hull(boundary)
+        if len(hull) < 3:
+            points = [
+                (min_x, min_y),
+                (max_x, min_y),
+                (max_x, max_y),
+                (min_x, max_y),
+            ]
+        else:
+            points = hull
+
+        components.append(
             {
-                "shape": "rect",
-                "x": round(min_x / width, 5),
-                "y": round(min_y / height, 5),
-                "width": round(box_width / width, 5),
-                "height": round(box_height / height, 5),
+                "shape": "polygon",
+                "points": [{"x": round(x / width, 5), "y": round(y / height, 5)} for x, y in points],
                 "pixelBox": [min_x, min_y, max_x, max_y],
+                "area": count,
                 "source": "pdf-magenta",
             }
         )
 
+    regions = sorted(components, key=lambda item: item["area"], reverse=True)[:target_count]
     regions.sort(key=lambda item: (item["pixelBox"][1], item["pixelBox"][0]))
     for idx, region in enumerate(regions, start=1):
         region["id"] = f"PDF-MOR-{idx:03d}"
+        region.pop("area", None)
     return regions, width, height
 
 
@@ -226,7 +305,7 @@ def main():
         raise FileNotFoundError(f"Map gorseli bulunamadi: {MAP_IMAGE}")
 
     buildings, work_items = read_buildings()
-    regions, map_width, map_height = detect_magenta_regions()
+    regions, map_width, map_height = detect_magenta_regions(len(buildings))
     for index, region in enumerate(regions):
         if index < len(buildings):
             region["buildingId"] = buildings[index]["id"]
