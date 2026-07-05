@@ -2327,17 +2327,19 @@ function BuildingsPanel({
 }
 
 function LogsPanel({ logs }) {
+  const sessionLogs = logs.filter((log) => ["Giriş yapıldı", "Çıkış yapıldı"].includes(log.action));
+
   return (
     <main className="page-panel">
       <div className="panel-title-row">
         <div>
-          <h2>Log kayıtları</h2>
-          <p>{logs.length} işlem</p>
+          <h2>Giriş çıkış logları</h2>
+          <p>{sessionLogs.length} oturum kaydı</p>
         </div>
       </div>
       <div className="log-list">
-        {logs.length === 0 && <div className="empty-state">Henüz kayıt yok.</div>}
-        {logs.map((log) => (
+        {sessionLogs.length === 0 && <div className="empty-state">Henüz giriş çıkış kaydı yok.</div>}
+        {sessionLogs.map((log) => (
           <article className="log-row" key={log.id}>
             <div>
               <strong>{log.action}</strong>
