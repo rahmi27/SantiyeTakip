@@ -81,6 +81,7 @@ const initialNewWork = {
   label: "",
   quantity: "",
   weight: "",
+  category: "sihhi",
 };
 
 const workCategoryMeta = {
@@ -485,6 +486,24 @@ function getWorkCategory(work) {
   return work?.category || workCategoryByKey[work?.key] || "sihhi";
 }
 
+function getSafeWorkCategory(category) {
+  return workCategoryMeta[category] ? category : "sihhi";
+}
+
+function WorkCategorySelect({ value, onChange }) {
+  return (
+    <select value={getSafeWorkCategory(value)} onChange={(event) => onChange(event.target.value)} aria-label="İş kategorisi">
+      {Object.entries(workCategoryMeta)
+        .sort((a, b) => a[1].order - b[1].order)
+        .map(([key, meta]) => (
+          <option key={key} value={key}>
+            {meta.label}
+          </option>
+        ))}
+    </select>
+  );
+}
+
 function groupWorksByCategory(works) {
   return Object.entries(
     works.reduce((groups, work) => {
@@ -728,10 +747,11 @@ function App() {
         label: cleanLabel,
         quantity: clampQuantity(payload?.quantity),
         weight: clampPercent(payload?.weight),
+        category: getSafeWorkCategory(payload?.category),
       });
       building.progress = building.progress || {};
       building.progress[key] = 0;
-      draft.workItems.push({ key, label: cleanLabel });
+      draft.workItems.push({ key, label: cleanLabel, category: getSafeWorkCategory(payload?.category) });
       draft.logs.unshift(makeLog(currentUser, "Ek iş kalemi eklendi", `${building.code} / ${cleanLabel}`));
     });
   }
@@ -2081,6 +2101,10 @@ function BuildingModal({
                   onChange={(event) => setNewWork((previous) => ({ ...previous, weight: event.target.value }))}
                   placeholder="Ağırlık"
                 />
+                <WorkCategorySelect
+                  value={newWork.category}
+                  onChange={(category) => setNewWork((previous) => ({ ...previous, category }))}
+                />
                 <button className="secondary-action" type="submit">
                   <Plus size={16} />
                   Ekle
@@ -2681,6 +2705,10 @@ function BuildingsPanel({
               value={newWork.weight}
               onChange={(event) => setNewWork((previous) => ({ ...previous, weight: event.target.value }))}
               placeholder="Ağırlık"
+            />
+            <WorkCategorySelect
+              value={newWork.category}
+              onChange={(category) => setNewWork((previous) => ({ ...previous, category }))}
             />
             <button className="secondary-action" type="submit">
               <Plus size={16} />

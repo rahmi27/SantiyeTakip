@@ -1353,7 +1353,8 @@ img {
 }
 
 .inline-text-input,
-.add-work-form input {
+.add-work-form input,
+.add-work-form select {
   width: 100%;
   min-height: 36px;
   padding: 0 8px;
@@ -1366,7 +1367,7 @@ img {
 
 .add-work-form {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(86px, 0.45fr) minmax(86px, 0.45fr) minmax(92px, auto);
+  grid-template-columns: minmax(160px, 1fr) minmax(86px, 0.4fr) minmax(86px, 0.4fr) minmax(120px, 0.55fr) minmax(92px, auto);
   gap: 8px;
   margin-top: 12px;
   padding-top: 12px;
@@ -1374,7 +1375,7 @@ img {
 }
 
 .work-panel .add-work-form {
-  grid-template-columns: minmax(0, 1fr) minmax(82px, 0.42fr) minmax(82px, 0.42fr);
+  grid-template-columns: minmax(0, 1fr) minmax(82px, 0.42fr) minmax(82px, 0.42fr) minmax(108px, 0.55fr);
 }
 
 .work-panel .add-work-form button {
