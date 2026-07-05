@@ -12,7 +12,22 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_XLSX = ROOT / "source" / "teklif.xlsx"
 MAP_IMAGE = ROOT / "public" / "assets" / "site-map.png"
+REGION_DETECTION_IMAGE = ROOT / "source" / "site-map-detection.png"
 OUTPUT_JSON = ROOT / "src" / "data" / "siteData.json"
+
+WORK_CATEGORY_BY_COLUMN = {
+    6: "sihhi",
+    7: "sihhi",
+    8: "sihhi",
+    9: "sihhi",
+    10: "isitma",
+    11: "isitma",
+    12: "yangin",
+    13: "yangin",
+    14: "yangin",
+    15: "sihhi",
+    16: "sihhi",
+}
 
 
 def slugify(value: str) -> str:
@@ -52,7 +67,7 @@ def read_buildings():
             continue
         label = str(raw_name).replace("\n", " ").strip()
         key = slugify(label)
-        work_columns.append((column_index, key, label))
+        work_columns.append((column_index, key, label, WORK_CATEGORY_BY_COLUMN.get(column_index, "sihhi")))
 
     work_items_by_key = {}
     buildings = []
@@ -66,13 +81,13 @@ def read_buildings():
         code = str(code).strip()
         works = []
         progress = {}
-        for column_index, key, label in work_columns:
+        for column_index, key, label, category in work_columns:
             quantity = as_number(ws.cell(row_index, column_index).value)
             if quantity <= 0:
                 continue
-            works.append({"key": key, "label": label, "quantity": quantity})
+            works.append({"key": key, "label": label, "quantity": quantity, "category": category})
             progress[key] = 0
-            work_items_by_key[key] = label
+            work_items_by_key[key] = {"label": label, "category": category}
 
         buildings.append(
             {
@@ -86,12 +101,16 @@ def read_buildings():
             }
         )
 
-    work_items = [{"key": key, "label": label} for key, label in sorted(work_items_by_key.items())]
+    work_items = [
+        {"key": key, "label": item["label"], "category": item["category"]}
+        for key, item in sorted(work_items_by_key.items())
+    ]
     return buildings, work_items
 
 
 def detect_magenta_regions():
-    image = Image.open(MAP_IMAGE).convert("RGB")
+    source = REGION_DETECTION_IMAGE if REGION_DETECTION_IMAGE.exists() else MAP_IMAGE
+    image = Image.open(source).convert("RGB")
     width, height = image.size
     mask = Image.new("L", (width, height), 0)
     mask_pixels = mask.load()
@@ -227,11 +246,9 @@ def main():
 
     buildings, work_items = read_buildings()
     regions, map_width, map_height = detect_magenta_regions()
+    regions = regions[: len(buildings)]
     for index, region in enumerate(regions):
-        if index < len(buildings):
-            region["buildingId"] = buildings[index]["id"]
-        else:
-            region["buildingId"] = buildings[0]["id"] if buildings else ""
+        region["buildingId"] = buildings[index]["id"]
 
     data = {
         "map": {
@@ -245,9 +262,9 @@ def main():
         "users": make_users(buildings, work_items),
         "requests": [],
         "progressRanges": [
-            {"id": "range-0-20", "min": 0, "max": 20, "color": "#d93636", "label": "0-20"},
-            {"id": "range-20-40", "min": 20, "max": 40, "color": "#e0b428", "label": "20-40"},
-            {"id": "range-40-100", "min": 40, "max": 100, "color": "#1f9d63", "label": "40-100"},
+            {"id": "range-0-20", "min": 0, "max": 20, "color": "#ef4444", "label": "0-20"},
+            {"id": "range-20-40", "min": 20, "max": 40, "color": "#facc15", "label": "20-40"},
+            {"id": "range-40-100", "min": 40, "max": 100, "color": "#22c55e", "label": "40-100"},
         ],
     }
 

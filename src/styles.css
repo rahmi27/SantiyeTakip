@@ -3,24 +3,28 @@
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   line-height: 1.45;
-  color: #172033;
-  background: #dce8f7;
+  color: #13233a;
+  background: #9fb9d6;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --panel: #f7fbff;
-  --panel-strong: #ffffff;
-  --panel-soft: #eef5ff;
-  --line: #bfd0e6;
-  --text-soft: #5e718d;
-  --ink: #172033;
-  --accent: #2563eb;
-  --accent-strong: #1d4ed8;
+  --panel: #c9dbee;
+  --panel-strong: #dbe9f7;
+  --panel-soft: #b8cfe8;
+  --line: #7f9cbc;
+  --text-soft: #4c617d;
+  --ink: #13233a;
+  --accent: #1f5fa8;
+  --accent-strong: #143f72;
+  --accent-soft: #a8c4e2;
+  --earth: #b88b5d;
+  --earth-soft: #dac6ad;
+  --map-bg: #849fbd;
   --magenta: #7c3aed;
   --good: #16a34a;
   --mid: #facc15;
   --low: #ef4444;
   --info: #2563eb;
-  --shadow: 0 18px 46px rgba(30, 64, 175, 0.14);
+  --shadow: 0 18px 46px rgba(19, 44, 74, 0.2);
 }
 
 * {
@@ -31,12 +35,12 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: #dce8f7;
+  background: #9fb9d6;
   overflow-x: hidden;
 }
 
 body:has(.theme-dark) {
-  background: #0d1726;
+  background: #050507;
 }
 
 button,
@@ -67,21 +71,25 @@ img {
 }
 
 .theme-dark {
-  color: #dce8f7;
-  background: #0d1726;
-  --panel: #111c2d;
-  --panel-strong: #17243a;
-  --panel-soft: #0f2136;
-  --line: #29405f;
-  --text-soft: #9eb2cf;
-  --ink: #e6eefb;
-  --accent: #60a5fa;
-  --accent-strong: #3b82f6;
-  --magenta: #a78bfa;
-  --good: #22c55e;
-  --mid: #facc15;
-  --low: #f87171;
-  --info: #60a5fa;
+  color: #e8ecf2;
+  background: #050507;
+  --panel: #090b0f;
+  --panel-strong: #11151c;
+  --panel-soft: #161b24;
+  --line: #2a303b;
+  --text-soft: #a1acbc;
+  --ink: #eef2f7;
+  --accent: #4d8fd6;
+  --accent-strong: #8bbcf0;
+  --accent-soft: #1c3149;
+  --earth: #c69a6a;
+  --earth-soft: #3b2f23;
+  --map-bg: #06070a;
+  --magenta: #b79cff;
+  --good: #41c783;
+  --mid: #d7b75a;
+  --low: #e66b68;
+  --info: #81b6ec;
   --shadow: 0 20px 54px rgba(0, 0, 0, 0.36);
 }
 
@@ -129,7 +137,8 @@ img {
 
 .brand-lockup h1,
 .login-title h1 {
-  font-size: 16px;
+  font-size: 15px;
+  line-height: 1.2;
 }
 
 .brand-lockup p,
@@ -411,6 +420,14 @@ img {
   width: 120px;
 }
 
+.zoom-label {
+  min-width: 52px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
 .tool-toggle.active {
   color: #fff;
   background: var(--magenta);
@@ -421,7 +438,7 @@ img {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  background: color-mix(in srgb, var(--accent) 8%, #d7e1ee);
+  background: var(--map-bg);
 }
 
 .map-canvas {
@@ -642,12 +659,14 @@ img {
   place-items: center;
   min-height: 100vh;
   padding: 20px;
-  background: radial-gradient(circle at top, #cfe1ff, #dce8f7 48%, #c8d7ec);
+  background:
+    linear-gradient(135deg, rgba(31, 95, 168, 0.28), rgba(184, 139, 93, 0.18)),
+    #9fb9d6;
 }
 
 .login-panel {
   display: block;
-  width: min(420px, 100%);
+  width: min(560px, 100%);
   min-height: auto;
   overflow: hidden;
   background: var(--panel-strong);
@@ -686,8 +705,50 @@ img {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 15px;
-  padding: 34px;
+  gap: 14px;
+  padding: 28px;
+}
+
+.login-user-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(46vh, 360px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.login-user-list button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 54px;
+  padding: 10px;
+  color: var(--ink);
+  text-align: left;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.login-user-list button.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--panel-strong));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.login-user-list span,
+.login-user-list strong,
+.login-user-list em {
+  display: block;
+  min-width: 0;
+}
+
+.login-user-list em {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-style: normal;
 }
 
 .login-form label,
@@ -876,6 +937,41 @@ img {
   display: grid;
   gap: 10px;
   margin-top: 14px;
+}
+
+.category-section {
+  display: grid;
+  gap: 8px;
+}
+
+.category-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent-soft) 64%, var(--panel-strong));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.category-toggle span {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.category-toggle b {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.category-work-list,
+.request-category-list {
+  display: grid;
+  gap: 8px;
 }
 
 .foreman-modal .work-list {
@@ -1123,7 +1219,8 @@ img {
 }
 
 .inline-text-input,
-.add-work-form input {
+.add-work-form input,
+.add-work-form select {
   width: 100%;
   min-height: 36px;
   padding: 0 8px;
@@ -1136,7 +1233,7 @@ img {
 
 .add-work-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 112px 112px auto;
+  grid-template-columns: minmax(180px, 1fr) 132px 112px 112px auto;
   gap: 8px;
   margin-top: 12px;
   padding-top: 12px;
@@ -1406,8 +1503,22 @@ img {
   grid-template-columns: 330px minmax(0, 1fr);
   gap: 14px;
   padding: 14px;
-  min-height: calc(100vh - 68px);
+  height: calc(100vh - 58px);
+  min-height: 0;
+  overflow: hidden;
   align-items: start;
+}
+
+.buildings-layout.list-only {
+  grid-template-columns: 1fr;
+}
+
+.buildings-layout.list-only .building-admin-list-panel {
+  max-height: calc(100vh - 96px);
+}
+
+.buildings-layout.list-only .building-admin-list {
+  max-height: calc(100vh - 204px);
 }
 
 .user-list-panel,
@@ -1416,6 +1527,12 @@ img {
 .building-admin-detail {
   min-width: 0;
   padding: 14px;
+}
+
+.permission-panel,
+.building-admin-detail {
+  max-height: calc(100vh - 96px);
+  overflow: auto;
 }
 
 .building-admin-list-panel {
