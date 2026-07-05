@@ -171,7 +171,6 @@ img {
 }
 
 .tabbar button,
-.segmented button,
 .permission-actions button,
 .quick-users button {
   display: inline-flex;
@@ -181,6 +180,19 @@ img {
   min-height: 32px;
   padding: 0 10px;
   color: color-mix(in srgb, #ffffff 82%, var(--accent-strong));
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+}
+
+.segmented button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--ink);
   background: transparent;
   border: 0;
   border-radius: 6px;
@@ -1558,9 +1570,28 @@ img {
 .segmented {
   flex-wrap: wrap;
   padding: 4px;
-  background: var(--panel-soft);
+  background: color-mix(in srgb, var(--panel-soft) 78%, var(--panel-strong));
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.request-filters .segmented {
+  background: color-mix(in srgb, var(--panel-soft) 58%, var(--panel-strong));
+}
+
+.request-filters .segmented button {
+  color: color-mix(in srgb, var(--ink) 84%, var(--accent-strong));
+  font-weight: 650;
+}
+
+.request-filters .segmented button:hover {
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--panel-strong) 72%, var(--accent) 10%);
+}
+
+.request-filters .segmented button.active {
+  color: var(--accent-strong);
+  background: var(--panel-strong);
 }
 
 .segmented.compact {
