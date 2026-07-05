@@ -17,6 +17,7 @@ import {
   Moon,
   Plus,
   Search,
+  Settings,
   ShieldCheck,
   Sun,
   Trash2,
@@ -29,7 +30,7 @@ import {
 import seedData from "./data/siteData.json";
 
 const APP_TITLE = "5. Zırhlı tugayı mekanik işleri proje takibi";
-const STORAGE_KEY = "tugay-santiye-state-v10";
+const STORAGE_KEY = "tugay-santiye-state-v11";
 const SESSION_KEY = "tugay-santiye-current-user";
 const SESSION_START_KEY = "tugay-santiye-session-start";
 const THEME_KEY = "tugay-santiye-theme";
@@ -78,10 +79,37 @@ const workCategoryByKey = {
   i_b_a: "yangin",
 };
 
+const defaultThemeSettings = {
+  light: {
+    panel: "#e7f0fb",
+    panelStrong: "#f2f7fd",
+    panelSoft: "#d8e7f7",
+    line: "#9bb2cf",
+    ink: "#10233d",
+    textSoft: "#526a88",
+    accent: "#1f64c8",
+    accentStrong: "#164a9b",
+    pageBg: "#c9d9ec",
+  },
+  dark: {
+    panel: "#0d1117",
+    panelStrong: "#151b23",
+    panelSoft: "#101820",
+    line: "#263341",
+    ink: "#eef4fb",
+    textSoft: "#9caec2",
+    accent: "#3b82f6",
+    accentStrong: "#78aefc",
+    pageBg: "#050608",
+  },
+};
+
 const defaultProgressRanges = [
-  { id: "range-0-20", min: 0, max: 20, color: "#ef4444", label: "0-20" },
-  { id: "range-20-40", min: 20, max: 40, color: "#facc15", label: "20-40" },
-  { id: "range-40-100", min: 40, max: 100, color: "#22c55e", label: "40-100" },
+  { id: "range-0-20", min: 0, max: 20, color: "#ff4040", label: "0-20" },
+  { id: "range-20-40", min: 20, max: 40, color: "#ffac5a", label: "20-40" },
+  { id: "range-40-60", min: 40, max: 60, color: "#ffff3b", label: "40-60" },
+  { id: "range-60-80", min: 60, max: 80, color: "#91ff8f", label: "60-80" },
+  { id: "range-80-100", min: 80, max: 100, color: "#00f75c", label: "80-100" },
 ];
 
 const legacyProgressRangeColors = ["#d93636", "#e0b428", "#1f9d63"];
@@ -159,14 +187,47 @@ function colorWithAlpha(color, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function makeThemeStyle(themeSettings, mode) {
+  const palette = sanitizeThemeSettings(themeSettings)[mode] || defaultThemeSettings.light;
+  return {
+    "--panel": palette.panel,
+    "--panel-strong": palette.panelStrong,
+    "--panel-soft": palette.panelSoft,
+    "--line": palette.line,
+    "--ink": palette.ink,
+    "--text-soft": palette.textSoft,
+    "--accent": palette.accent,
+    "--accent-strong": palette.accentStrong,
+    "--page-bg": palette.pageBg,
+    background: palette.pageBg,
+  };
+}
+
+function isSessionLog(log) {
+  return ["Giriş yapıldı", "Çıkış yapıldı"].includes(log?.action);
+}
+
 function copySeed() {
   return normalizeState({ ...seedData, progressRanges: seedData.progressRanges || defaultProgressRanges });
 }
 
+function sanitizeThemeSettings(settings) {
+  const source = settings || {};
+  return Object.fromEntries(
+    Object.entries(defaultThemeSettings).map(([mode, defaults]) => [
+      mode,
+      Object.fromEntries(
+        Object.entries(defaults).map(([key, value]) => [key, safeColor(source[mode]?.[key], value)]),
+      ),
+    ]),
+  );
+}
+
 function normalizeState(raw) {
   const draft = JSON.parse(JSON.stringify(raw));
-  draft.progressRanges = JSON.parse(JSON.stringify(defaultProgressRanges));
-  draft.logs = draft.logs || [];
+  draft.progressRanges = sanitizeProgressRanges(draft.progressRanges || defaultProgressRanges);
+  draft.themeSettings = sanitizeThemeSettings(draft.themeSettings);
+  draft.logs = (draft.logs || []).filter(isSessionLog);
   draft.workItems = (draft.workItems || []).map((work) => ({ ...work, label: cleanText(work.label) }));
   draft.buildings = (draft.buildings || []).map((building) => {
     const count = Math.max(1, building.works?.length || 1);
@@ -234,13 +295,33 @@ function clampPercent(value) {
 
 function getBuildingProgress(building) {
   if (!building?.works?.length) return 0;
-  const fallbackWeight = 100 / building.works.length;
-  const totalWeight = building.works.reduce((sum, work) => sum + Number(work.weight || fallbackWeight), 0);
-  const total = building.works.reduce((sum, work) => {
+  return getWorksProgress(building, building.works);
+}
+
+function getWorksProgress(building, works) {
+  if (!building || !works?.length) return 0;
+  const fallbackWeight = 100 / works.length;
+  const totalWeight = works.reduce((sum, work) => sum + Number(work.weight || fallbackWeight), 0);
+  const total = works.reduce((sum, work) => {
     const weight = Number(work.weight || fallbackWeight);
     return sum + Number(building.progress?.[work.key] || 0) * (weight / Math.max(1, totalWeight));
   }, 0);
   return clampPercent(total);
+}
+
+function getScopedBuildingWorks(user, building) {
+  if (!user || !building?.works) return [];
+  if (user.role === "admin") return building.works;
+  const allowedWorkKeys = getUserWorkPermissions(user, building.works);
+  return building.works.filter((work) => allowedWorkKeys.includes(work.key) && !isForemanHiddenWork(work));
+}
+
+function getScopedBuildingProgress(user, building) {
+  return getWorksProgress(building, getScopedBuildingWorks(user, building));
+}
+
+function getProgressColor(progress, ranges) {
+  return getProgressRange(progress, ranges)?.color || defaultProgressRanges[0].color;
 }
 
 function canAccess(user, buildingId) {
@@ -282,8 +363,30 @@ function getWorkRemainingQuantity(building, work) {
   return Math.max(0, Number(work?.quantity || 0) - getWorkCompletedQuantity(building, work));
 }
 
+function getWorkReservedQuantity(requests, buildingId, workKey, excludeRequestId = "") {
+  const reservedStatuses = new Set(["pending", "revision", "answered"]);
+  return requests
+    .filter((request) => request.id !== excludeRequestId && request.buildingId === buildingId && reservedStatuses.has(request.status))
+    .reduce((sum, request) => {
+      return (
+        sum +
+        getRequestItems(request).reduce((itemSum, item) => {
+          return item.workKey === workKey ? itemSum + Number(item.quantity || 0) : itemSum;
+        }, 0)
+      );
+    }, 0);
+}
+
+function getWorkAvailableQuantity(building, work, requests, excludeRequestId = "") {
+  return Math.max(0, getWorkRemainingQuantity(building, work) - getWorkReservedQuantity(requests, building.id, work.key, excludeRequestId));
+}
+
 function clampWorkRequestQuantity(building, work, value) {
   return Math.min(clampQuantity(value), getWorkRemainingQuantity(building, work));
+}
+
+function clampWorkAvailableRequestQuantity(building, work, requests, value, excludeRequestId = "") {
+  return Math.min(clampQuantity(value), getWorkAvailableQuantity(building, work, requests, excludeRequestId));
 }
 
 function isForemanHiddenWork(work) {
@@ -434,6 +537,7 @@ function App() {
     setState((previous) => {
       const draft = JSON.parse(JSON.stringify(previous));
       updater(draft);
+      draft.logs = (draft.logs || []).filter(isSessionLog);
       return draft;
     });
   }
@@ -677,7 +781,7 @@ function App() {
             if (!work) return null;
             return {
               ...item,
-              quantity: clampWorkRequestQuantity(building, work, item.quantity),
+              quantity: clampWorkAvailableRequestQuantity(building, work, draft.requests || [], item.quantity, requestId),
             };
           })
           .filter(Boolean);
@@ -801,6 +905,20 @@ function App() {
     });
   }
 
+  function updateThemeColor(mode, key, value) {
+    updateState((draft) => {
+      draft.themeSettings = sanitizeThemeSettings(draft.themeSettings);
+      if (!draft.themeSettings[mode] || !(key in draft.themeSettings[mode])) return;
+      draft.themeSettings[mode][key] = safeColor(value, defaultThemeSettings[mode][key]);
+    });
+  }
+
+  function resetThemeSettings() {
+    updateState((draft) => {
+      draft.themeSettings = sanitizeThemeSettings(defaultThemeSettings);
+    });
+  }
+
   function updateUser(userId, patch) {
     updateState((draft) => {
       const user = draft.users.find((item) => item.id === userId);
@@ -892,7 +1010,7 @@ function App() {
   }
 
   return (
-    <div className={`app-shell ${theme === "dark" ? "theme-dark" : ""}`}>
+    <div className={`app-shell ${theme === "dark" ? "theme-dark" : ""}`} style={makeThemeStyle(state.themeSettings, theme)}>
       <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-mark">
@@ -933,6 +1051,15 @@ function App() {
 
         <div className="user-chip">
           <CircleUserRound size={18} />
+          {currentUser.role === "admin" && (
+            <button
+              className={`icon-button ${activeTab === "settings" ? "active" : ""}`}
+              title="Ayarlar"
+              onClick={() => setActiveTab("settings")}
+            >
+              <Settings size={17} />
+            </button>
+          )}
           <div>
             <strong>{currentUser.name}</strong>
             <span>{currentUser.role === "admin" ? "Süper Admin" : "Formen"}</span>
@@ -952,10 +1079,13 @@ function App() {
             user={currentUser}
             buildings={accessibleBuildings}
             requests={state.requests}
+            progressRanges={state.progressRanges}
           />
           <main className="workspace">
             <BuildingSidebar
               buildings={visibleBuildings}
+              user={currentUser}
+              progressRanges={state.progressRanges}
               totalCount={accessibleBuildings.length}
               query={query}
               onQuery={setQuery}
@@ -1053,6 +1183,19 @@ function App() {
         />
       )}
 
+      {activeTab === "settings" && currentUser.role === "admin" && (
+        <SettingsPanel
+          progressRanges={state.progressRanges}
+          themeSettings={state.themeSettings}
+          onUpdateProgressRange={updateProgressRange}
+          onAddProgressRange={addProgressRange}
+          onDeleteProgressRange={deleteProgressRange}
+          onResetProgressRanges={resetProgressRanges}
+          onUpdateThemeColor={updateThemeColor}
+          onResetThemeSettings={resetThemeSettings}
+        />
+      )}
+
       {openBuilding && (
         <BuildingModal
           user={currentUser}
@@ -1061,6 +1204,8 @@ function App() {
           regions={state.regions}
           buildings={state.buildings}
           requests={state.requests.filter((request) => request.buildingId === openBuilding.id)}
+          allRequests={state.requests}
+          progressRanges={state.progressRanges}
           onClose={() => setOpenBuildingId(null)}
           onSetWorkProgress={setWorkProgress}
           onSetWorkQuantity={setWorkQuantity}
@@ -1172,7 +1317,7 @@ function LoginScreen({ users, onLogin }) {
   );
 }
 
-function BuildingSidebar({ buildings, totalCount, query, onQuery, selectedBuildingId, onSelect }) {
+function BuildingSidebar({ buildings, user, progressRanges, totalCount, query, onQuery, selectedBuildingId, onSelect }) {
   return (
     <aside className="sidebar">
       <div className="section-heading">
@@ -1187,7 +1332,8 @@ function BuildingSidebar({ buildings, totalCount, query, onQuery, selectedBuildi
       </label>
       <div className="building-list">
         {buildings.map((building) => {
-          const progress = getBuildingProgress(building);
+          const progress = getScopedBuildingProgress(user, building);
+          const color = getProgressColor(progress, progressRanges);
           return (
             <button
               key={building.id}
@@ -1203,7 +1349,7 @@ function BuildingSidebar({ buildings, totalCount, query, onQuery, selectedBuildi
                 <b>{progress}%</b>
               </div>
               <div className="mini-progress">
-                <i style={{ width: `${progress}%` }} />
+                <i style={{ width: `${progress}%`, background: color }} />
               </div>
             </button>
           );
@@ -1308,6 +1454,20 @@ function MapPanel({
     };
   }
 
+  function getRegionCenter(region) {
+    if (region.points?.length) {
+      const total = region.points.reduce(
+        (sum, point) => ({ x: sum.x + point.x * map.width, y: sum.y + point.y * map.height }),
+        { x: 0, y: 0 },
+      );
+      return { x: total.x / region.points.length, y: total.y / region.points.length };
+    }
+    return {
+      x: (region.x + region.width / 2) * map.width,
+      y: (region.y + region.height / 2) * map.height,
+    };
+  }
+
   const draftBox = draftRect
     ? {
         x: Math.min(draftRect.startX, draftRect.endX),
@@ -1316,7 +1476,7 @@ function MapPanel({
         height: Math.abs(draftRect.endY - draftRect.startY),
       }
     : null;
-  const displayWidth = Math.min(map.width, 1760);
+  const displayWidth = map.width;
 
   return (
     <section className="map-section">
@@ -1388,10 +1548,11 @@ function MapPanel({
             {regions.map((region) => {
               const building = buildingsById[region.buildingId];
               const allowed = canAccess(user, region.buildingId);
-              const progress = getBuildingProgress(building);
+              const progress = getScopedBuildingProgress(user, building);
               const tone = progressTone(progress);
               const progressRange = getProgressRange(progress, progressRanges);
               const geometry = getRegionGeometry(region);
+              const center = getRegionCenter(region);
               const shapeProps = {
                 className: `hotspot-shape ${selectedRegionId === region.id ? "selected" : ""}`,
                 style: {
@@ -1409,6 +1570,11 @@ function MapPanel({
                     <polygon points={geometry.points} {...shapeProps} />
                   ) : (
                     <rect x={geometry.x} y={geometry.y} width={geometry.width} height={geometry.height} rx="2" {...shapeProps} />
+                  )}
+                  {allowed && zoom >= 2.2 && building && (
+                    <text className="building-map-label" x={center.x} y={center.y}>
+                      {building.code}
+                    </text>
                   )}
                   <title>{`${region.id} · ${building?.code || "Bina seçilmedi"} · ${progress}%`}</title>
                 </g>
@@ -1443,11 +1609,17 @@ function SummaryPanel({
   user,
   buildings,
   requests,
+  progressRanges,
 }) {
-  const progressSum = buildings.reduce((sum, building) => sum + getBuildingProgress(building), 0);
+  const scopedRequests =
+    user.role === "admin"
+      ? requests
+      : requests.filter((request) => request.createdBy === user.id || (request.adminTask && canAccess(user, request.buildingId)));
+  const progressSum = buildings.reduce((sum, building) => sum + getScopedBuildingProgress(user, building), 0);
   const average = buildings.length && progressSum > 0 ? Math.max(1, Math.round(progressSum / buildings.length)) : 0;
-  const pending = requests.filter((request) => request.status === "pending").length;
-  const revision = requests.filter((request) => request.status === "revision").length;
+  const pending = scopedRequests.filter((request) => request.status === "pending").length;
+  const revision = scopedRequests.filter((request) => request.status === "revision").length;
+  const progressColor = getProgressColor(average, progressRanges);
 
   return (
     <aside className="summary-panel">
@@ -1455,7 +1627,7 @@ function SummaryPanel({
         <span>Genel ilerleme</span>
         <strong>{average}%</strong>
         <div className="big-progress">
-          <i style={{ width: `${average}%` }} />
+          <i style={{ width: `${average}%`, background: progressColor }} />
         </div>
       </div>
       <div className="metric-grid">
@@ -1487,6 +1659,8 @@ function BuildingModal({
   regions,
   buildings,
   requests,
+  allRequests,
+  progressRanges,
   onClose,
   onSetWorkProgress,
   onSetWorkQuantity,
@@ -1519,19 +1693,23 @@ function BuildingModal({
     setPhoto("");
   }, [building.id]);
 
-  const progress = getBuildingProgress(building);
+  const progress = getScopedBuildingProgress(user, building);
+  const progressColor = getProgressColor(progress, progressRanges);
   const allowedWorkKeys = getUserWorkPermissions(user, building.works);
   const visibleWorks =
     user.role === "admin"
       ? building.works
       : building.works.filter((work) => allowedWorkKeys.includes(work.key) && !isForemanHiddenWork(work));
   const requestableWorks = visibleWorks.filter(
-    (work) => allowedWorkKeys.includes(work.key) && !isForemanHiddenWork(work) && getWorkRemainingQuantity(building, work) > 0,
+    (work) =>
+      allowedWorkKeys.includes(work.key) &&
+      !isForemanHiddenWork(work) &&
+      getWorkAvailableQuantity(building, work, allRequests) > 0,
   );
   const requestItems = requestableWorks
     .map((work) => ({
       workKey: work.key,
-      quantity: clampWorkRequestQuantity(building, work, requestQuantities[work.key]),
+      quantity: clampWorkAvailableRequestQuantity(building, work, allRequests, requestQuantities[work.key]),
     }))
     .filter((item) => item.quantity > 0);
   const canSubmit = user.role !== "admin" && requestItems.length > 0;
@@ -1540,7 +1718,7 @@ function BuildingModal({
     const work = building.works.find((item) => item.key === workKey);
     setRequestQuantities((previous) => ({
       ...previous,
-      [workKey]: work ? clampWorkRequestQuantity(building, work, value) : clampQuantity(value),
+      [workKey]: work ? clampWorkAvailableRequestQuantity(building, work, allRequests, value) : clampQuantity(value),
     }));
   }
 
@@ -1679,15 +1857,15 @@ function BuildingModal({
                 <span>Genel yüzde</span>
                 <strong>{progress}%</strong>
               </div>
-              <div className={`status-dot ${progressTone(progress)}`} />
+              <div className="status-dot" style={{ background: progressColor }} />
             </div>
             <div className="big-progress">
-              <i style={{ width: `${progress}%` }} />
+              <i style={{ width: `${progress}%`, background: progressColor }} />
             </div>
 
             <div className="work-list">
               {groupWorksByCategory(visibleWorks).map((category) => (
-                <details className="work-category" key={category.key} open>
+                <details className="work-category" key={category.key}>
                   <summary>
                     <span>{category.label}</span>
                     <b>{category.items.length}</b>
@@ -1696,6 +1874,7 @@ function BuildingModal({
                   {category.items.map((work) => {
                     const value = Number(building.progress?.[work.key] || 0);
                     const remaining = getWorkRemainingQuantity(building, work);
+                    const workColor = getProgressColor(value, progressRanges);
                     return (
                       <div className="work-item" key={work.key}>
                     <div>
@@ -1754,7 +1933,7 @@ function BuildingModal({
                       </div>
                     ) : (
                       <div className="inline-progress">
-                        <i style={{ width: `${value}%` }} />
+                        <i style={{ width: `${value}%`, background: workColor }} />
                         <b>{value}%</b>
                       </div>
                     )}
@@ -1859,14 +2038,14 @@ function BuildingModal({
                 )}
                 <div className="work-quantity-grid">
                   {groupWorksByCategory(requestableWorks).map((category) => (
-                    <details className="request-category" key={category.key} open>
+                    <details className="request-category" key={category.key}>
                       <summary>
                         <span>{category.label}</span>
                         <b>{category.items.length}</b>
                         <ChevronDown size={16} />
                       </summary>
                       {category.items.map((work) => {
-                        const remaining = getWorkRemainingQuantity(building, work);
+                        const remaining = getWorkAvailableQuantity(building, work, allRequests);
                         return (
                           <label key={work.key}>
                             <span>
@@ -1960,7 +2139,7 @@ function BuildingModal({
                             {items.map((item) => {
                               const work = building.works.find((buildingWork) => buildingWork.key === item.workKey);
                               const revisionItem = revisionItems.find((draftItem) => draftItem.workKey === item.workKey);
-                              const remaining = work ? getWorkRemainingQuantity(building, work) : 0;
+                              const remaining = work ? getWorkAvailableQuantity(building, work, allRequests, request.id) : 0;
                               return (
                                 <div key={item.workKey}>
                                   <span>{work?.label || item.workKey}</span>
@@ -1979,7 +2158,7 @@ function BuildingModal({
                                               ? {
                                                   ...draftItem,
                                                   quantity: work
-                                                    ? clampWorkRequestQuantity(building, work, event.target.value)
+                                                    ? clampWorkAvailableRequestQuantity(building, work, allRequests, event.target.value, request.id)
                                                     : clampQuantity(event.target.value),
                                                 }
                                               : draftItem,
@@ -2120,14 +2299,16 @@ function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, o
           <p>{visible.length} kayıt</p>
         </div>
         <div className="request-filters">
-          <select value={userFilter} onChange={(event) => setUserFilter(event.target.value)} aria-label="Formen filtresi">
-            <option value="all">Tüm formenler</option>
-            {creators.map((creator) => (
-              <option key={creator.id} value={creator.id}>
-                {creator.name}
-              </option>
-            ))}
-          </select>
+          {user.role === "admin" && (
+            <select value={userFilter} onChange={(event) => setUserFilter(event.target.value)} aria-label="Formen filtresi">
+              <option value="all">Tüm formenler</option>
+              {creators.map((creator) => (
+                <option key={creator.id} value={creator.id}>
+                  {creator.name}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="segmented">
             {["all", "pending", "answered", "revision", "approved"].map((item) => (
               <button key={item} className={status === item ? "active" : ""} onClick={() => setStatus(item)}>
@@ -2459,6 +2640,114 @@ function BuildingsPanel({
           </div>
         </section>
       )}
+    </main>
+  );
+}
+
+function SettingsPanel({
+  progressRanges,
+  themeSettings,
+  onUpdateProgressRange,
+  onAddProgressRange,
+  onDeleteProgressRange,
+  onResetProgressRanges,
+  onUpdateThemeColor,
+  onResetThemeSettings,
+}) {
+  const themeLabels = {
+    panel: "Panel",
+    panelStrong: "Panel üst",
+    panelSoft: "Yumuşak zemin",
+    line: "Çizgi",
+    ink: "Ana yazı",
+    textSoft: "Soluk yazı",
+    accent: "Ana mavi",
+    accentStrong: "Güçlü mavi",
+    pageBg: "Sayfa zemini",
+  };
+  const palettes = sanitizeThemeSettings(themeSettings);
+
+  return (
+    <main className="settings-layout">
+      <section className="settings-panel">
+        <div className="panel-title-row">
+          <div>
+            <h2>Renk ayarları</h2>
+            <p>Harita, popup ve tema renkleri</p>
+          </div>
+        </div>
+
+        <div className="settings-grid">
+          <section className="settings-card">
+            <div className="section-heading">
+              <div>
+                <span>İlerleme paleti</span>
+                <strong>{progressRanges.length} dilim</strong>
+              </div>
+              <div className="split-actions compact-actions">
+                <button className="secondary-action" onClick={onAddProgressRange}>
+                  <Plus size={16} />
+                  Dilim
+                </button>
+                <button className="secondary-action" onClick={onResetProgressRanges}>
+                  Sıfırla
+                </button>
+              </div>
+            </div>
+            <div className="range-editor">
+              {progressRanges.map((range) => (
+                <div className="range-editor-row" key={range.id}>
+                  <span className="range-swatch" style={{ background: range.color }} />
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={range.min}
+                    onChange={(event) => onUpdateProgressRange(range.id, { min: event.target.value })}
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={range.max}
+                    onChange={(event) => onUpdateProgressRange(range.id, { max: event.target.value })}
+                  />
+                  <input
+                    type="color"
+                    value={range.color}
+                    onChange={(event) => onUpdateProgressRange(range.id, { color: event.target.value })}
+                  />
+                  <button className="icon-button" title="Dilimi sil" onClick={() => onDeleteProgressRange(range.id)}>
+                    <X size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {Object.entries(palettes).map(([mode, palette]) => (
+            <section className="settings-card" key={mode}>
+              <div className="section-heading">
+                <div>
+                  <span>{mode === "light" ? "Açık mod" : "Dark mode"}</span>
+                  <strong>{mode === "light" ? "Mavi tonlar" : "Siyah taban"}</strong>
+                </div>
+                <button className="secondary-action" onClick={onResetThemeSettings}>
+                  Sıfırla
+                </button>
+              </div>
+              <div className="theme-color-grid">
+                {Object.entries(palette).map(([key, value]) => (
+                  <label key={key}>
+                    <span>{themeLabels[key] || key}</span>
+                    <input type="color" value={value} onChange={(event) => onUpdateThemeColor(mode, key, event.target.value)} />
+                  </label>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }

@@ -48,6 +48,12 @@ WORK_CATEGORY_BY_KEY = {
     "i_b_a": "yangin",
 }
 
+CATEGORY_WEIGHTS = {
+    "sihhi": 34,
+    "isitma": 33,
+    "yangin": 33,
+}
+
 
 def work_category(key: str) -> str:
     return WORK_CATEGORY_BY_KEY.get(key, "sihhi")
@@ -93,9 +99,12 @@ def read_buildings():
             progress[key] = 0
             work_items_by_key[key] = label
 
-        equal_weight = round(100 / max(1, len(works)))
+        category_counts = {}
         for work in works:
-            work["weight"] = equal_weight
+            category_counts[work["category"]] = category_counts.get(work["category"], 0) + 1
+        for work in works:
+            category_weight = CATEGORY_WEIGHTS.get(work["category"], 0)
+            work["weight"] = round(category_weight / max(1, category_counts.get(work["category"], 1)))
 
         buildings.append(
             {
@@ -324,9 +333,11 @@ def main():
         "users": make_users(buildings, work_items),
         "requests": [],
         "progressRanges": [
-            {"id": "range-0-20", "min": 0, "max": 20, "color": "#d93636", "label": "0-20"},
-            {"id": "range-20-40", "min": 20, "max": 40, "color": "#e0b428", "label": "20-40"},
-            {"id": "range-40-100", "min": 40, "max": 100, "color": "#1f9d63", "label": "40-100"},
+            {"id": "range-0-20", "min": 0, "max": 20, "color": "#ff4040", "label": "0-20"},
+            {"id": "range-20-40", "min": 20, "max": 40, "color": "#ffac5a", "label": "20-40"},
+            {"id": "range-40-60", "min": 40, "max": 60, "color": "#ffff3b", "label": "40-60"},
+            {"id": "range-60-80", "min": 60, "max": 80, "color": "#91ff8f", "label": "60-80"},
+            {"id": "range-80-100", "min": 80, "max": 100, "color": "#00f75c", "label": "80-100"},
         ],
     }
 
