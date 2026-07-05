@@ -470,10 +470,20 @@ img {
   background: color-mix(in srgb, var(--accent) 12%, #9fb4cf);
 }
 
+.map-scroll-inner {
+  display: grid;
+  place-items: center;
+  min-width: 100%;
+  min-height: 100%;
+  width: max-content;
+  padding: 12px;
+}
+
 .map-canvas {
   position: relative;
   margin: 0;
-  min-width: 720px;
+  max-width: none;
+  aspect-ratio: 3520 / 2720;
   background: var(--panel-strong);
   box-shadow: 0 6px 18px rgba(31, 42, 55, 0.12);
 }

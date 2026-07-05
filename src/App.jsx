@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   Camera,
@@ -1465,6 +1465,25 @@ function MapPanel({
 }) {
   const [draftPoints, setDraftPoints] = useState([]);
   const [draftRect, setDraftRect] = useState(null);
+  const scrollRef = useRef(null);
+  const [fitScale, setFitScale] = useState(0.25);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return undefined;
+
+    function updateFitScale() {
+      const width = Math.max(1, element.clientWidth - 24);
+      const height = Math.max(1, element.clientHeight - 24);
+      const nextScale = Math.min(1, width / map.width, height / map.height);
+      setFitScale(Number(Math.max(0.05, nextScale).toFixed(4)));
+    }
+
+    updateFitScale();
+    const observer = new ResizeObserver(updateFitScale);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [map.height, map.width]);
 
   function getSvgPoint(event) {
     const box = event.currentTarget.getBoundingClientRect();
@@ -1564,7 +1583,7 @@ function MapPanel({
         height: Math.abs(draftRect.endY - draftRect.startY),
       }
     : null;
-  const displayWidth = map.width;
+  const displayWidth = Math.round(map.width * fitScale * zoom);
 
   return (
     <section className="map-section">
@@ -1622,71 +1641,73 @@ function MapPanel({
         </div>
       </div>
 
-      <div className="map-scroll">
-        <div className={`map-canvas ${manualMode ? "manual" : ""}`} style={{ width: `${displayWidth * zoom}px` }}>
-          <img src={map.image} alt="TBS-2 PDF haritası" />
-          <svg
-            viewBox={`0 0 ${map.width} ${map.height}`}
-            preserveAspectRatio="none"
-            onClick={addManualPoint}
-            onPointerDown={startManualRect}
-            onPointerMove={moveManualRect}
-            onPointerUp={finishManualRect}
-          >
-            {regions.map((region) => {
-              const building = buildingsById[region.buildingId];
-              const allowed = canAccess(user, region.buildingId);
-              const progress = getScopedBuildingProgress(user, building);
-              const tone = progressTone(progress);
-              const progressRange = getProgressRange(progress, progressRanges);
-              const geometry = getRegionGeometry(region);
-              const center = getRegionCenter(region);
-              const shapeProps = {
-                className: `hotspot-shape ${selectedRegionId === region.id ? "selected" : ""}`,
-                style: {
-                  fill: allowed ? colorWithAlpha(progressRange?.color, 0.45) : "rgba(86, 98, 116, 0.08)",
-                  stroke: allowed ? "#6d747c" : "rgba(86, 98, 116, 0.18)",
-                },
-                onClick: (event) => {
-                  event.stopPropagation();
-                  onSelect(region);
-                },
-              };
-              return (
-                <g key={region.id} className={`hotspot ${allowed ? "allowed" : "locked"} ${tone}`}>
-                  {geometry.type === "polygon" ? (
-                    <polygon points={geometry.points} {...shapeProps} />
-                  ) : (
-                    <rect x={geometry.x} y={geometry.y} width={geometry.width} height={geometry.height} rx="2" {...shapeProps} />
-                  )}
-                  {allowed && zoom >= 2.2 && building && (
-                    <text className="building-map-label" x={center.x} y={center.y}>
-                      {building.code}
-                    </text>
-                  )}
-                  <title>{`${region.id} · ${building?.code || "Bina seçilmedi"} · ${progress}%`}</title>
-                </g>
-              );
-            })}
-            {draftPoints.length > 0 && (
-              <>
-                <polyline className="manual-draft-line" points={draftPoints.map((point) => `${point.x},${point.y}`).join(" ")} />
-                {draftPoints.map((point, index) => (
-                  <circle className="manual-draft-point" key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="7" />
-                ))}
-              </>
-            )}
-            {draftBox && (
-              <rect
-                className="manual-draft-rect"
-                x={draftBox.x}
-                y={draftBox.y}
-                width={draftBox.width}
-                height={draftBox.height}
-                rx="2"
-              />
-            )}
-          </svg>
+      <div className="map-scroll" ref={scrollRef}>
+        <div className="map-scroll-inner">
+          <div className={`map-canvas ${manualMode ? "manual" : ""}`} style={{ width: `${displayWidth}px` }}>
+            <img src={map.image} alt="TBS-2 PDF haritası" />
+            <svg
+              viewBox={`0 0 ${map.width} ${map.height}`}
+              preserveAspectRatio="none"
+              onClick={addManualPoint}
+              onPointerDown={startManualRect}
+              onPointerMove={moveManualRect}
+              onPointerUp={finishManualRect}
+            >
+              {regions.map((region) => {
+                const building = buildingsById[region.buildingId];
+                const allowed = canAccess(user, region.buildingId);
+                const progress = getScopedBuildingProgress(user, building);
+                const tone = progressTone(progress);
+                const progressRange = getProgressRange(progress, progressRanges);
+                const geometry = getRegionGeometry(region);
+                const center = getRegionCenter(region);
+                const shapeProps = {
+                  className: `hotspot-shape ${selectedRegionId === region.id ? "selected" : ""}`,
+                  style: {
+                    fill: allowed ? colorWithAlpha(progressRange?.color, 0.45) : "rgba(86, 98, 116, 0.08)",
+                    stroke: allowed ? "#6d747c" : "rgba(86, 98, 116, 0.18)",
+                  },
+                  onClick: (event) => {
+                    event.stopPropagation();
+                    onSelect(region);
+                  },
+                };
+                return (
+                  <g key={region.id} className={`hotspot ${allowed ? "allowed" : "locked"} ${tone}`}>
+                    {geometry.type === "polygon" ? (
+                      <polygon points={geometry.points} {...shapeProps} />
+                    ) : (
+                      <rect x={geometry.x} y={geometry.y} width={geometry.width} height={geometry.height} rx="2" {...shapeProps} />
+                    )}
+                    {allowed && zoom >= 2.2 && building && (
+                      <text className="building-map-label" x={center.x} y={center.y}>
+                        {building.code}
+                      </text>
+                    )}
+                    <title>{`${region.id} · ${building?.code || "Bina seçilmedi"} · ${progress}%`}</title>
+                  </g>
+                );
+              })}
+              {draftPoints.length > 0 && (
+                <>
+                  <polyline className="manual-draft-line" points={draftPoints.map((point) => `${point.x},${point.y}`).join(" ")} />
+                  {draftPoints.map((point, index) => (
+                    <circle className="manual-draft-point" key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="7" />
+                  ))}
+                </>
+              )}
+              {draftBox && (
+                <rect
+                  className="manual-draft-rect"
+                  x={draftBox.x}
+                  y={draftBox.y}
+                  width={draftBox.width}
+                  height={draftBox.height}
+                  rx="2"
+                />
+              )}
+            </svg>
+          </div>
         </div>
       </div>
     </section>
