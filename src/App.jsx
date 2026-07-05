@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import seedData from "./data/siteData.json";
 
-const APP_TITLE = "5. Zırhlı tugayı mekanik işleri proje takibi";
+const APP_TITLE = "5. Zırhlı Tugayı Mekanik İşleri Proje Takibi";
 const STORAGE_KEY = "tugay-santiye-state-v11";
 const SESSION_KEY = "tugay-santiye-current-user";
 const SESSION_START_KEY = "tugay-santiye-session-start";

@@ -1272,11 +1272,21 @@ img {
 
 .add-work-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) 112px 112px auto;
+  grid-template-columns: minmax(150px, 1fr) minmax(86px, 0.45fr) minmax(86px, 0.45fr) minmax(92px, auto);
   gap: 8px;
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
+}
+
+.work-panel .add-work-form {
+  grid-template-columns: minmax(0, 1fr) minmax(82px, 0.42fr) minmax(82px, 0.42fr);
+}
+
+.work-panel .add-work-form button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  min-width: 118px;
 }
 
 .secondary-details {

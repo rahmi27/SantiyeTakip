@@ -1,4 +1,4 @@
-# 5. Zırhlı tugayı mekanik işleri proje takibi
+# 5. Zırhlı Tugayı Mekanik İşleri Proje Takibi
 
 React tabanli santiye ilerleme takip paneli.
 
