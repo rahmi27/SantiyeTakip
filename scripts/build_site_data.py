@@ -11,9 +11,11 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_XLSX = ROOT / "source" / "teklif.xlsx"
+SOURCE_PDF = ROOT / "source" / "TBS-2.pdf"
 MAP_IMAGE = ROOT / "public" / "assets" / "site-map.png"
 COORDINATE_MAP_IMAGE = ROOT / "public" / "assets" / "site-map-coordinate.png"
 OUTPUT_JSON = ROOT / "src" / "data" / "siteData.json"
+LABEL_ASSIGN_MAX_DISTANCE = 120
 
 
 def slugify(value: str) -> str:
@@ -58,6 +60,17 @@ CATEGORY_WEIGHTS = {
 
 def work_category(key: str) -> str:
     return WORK_CATEGORY_BY_KEY.get(key, "sihhi")
+
+
+def building_code_terms(code: str) -> list[str]:
+    code = code.strip()
+    terms = []
+    match = re.fullmatch(r"([A-Z]\d{2})\s+([A-Z](?:-[A-Z])*)", code)
+    if match:
+        base, letters = match.groups()
+        terms.extend(f"{base}{letter}" for letter in letters.split("-"))
+    terms.append(code)
+    return list(dict.fromkeys(terms))
 
 
 def read_buildings():
@@ -149,7 +162,204 @@ def convex_hull(points):
     return lower[:-1] + upper[:-1]
 
 
-def detect_magenta_regions(target_count):
+def distance_to_box(x, y, box):
+    min_x, min_y, max_x, max_y = box
+    dx = max(min_x - x, 0, x - max_x)
+    dy = max(min_y - y, 0, y - max_y)
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def nearest_component(x, y, components):
+    best_index = 0
+    best_distance = float("inf")
+    for index, component in enumerate(components):
+        distance = distance_to_box(x, y, component["pixelBox"])
+        if distance < best_distance:
+            best_distance = distance
+            best_index = index
+    return best_index, best_distance
+
+
+def near_components(x, y, components, max_distance=LABEL_ASSIGN_MAX_DISTANCE, limit=10):
+    matches = []
+    for index, component in enumerate(components):
+        distance = distance_to_box(x, y, component["pixelBox"])
+        if distance <= max_distance:
+            matches.append((distance, -component["area"], index))
+    matches.sort()
+    return [(index, distance) for distance, _, index in matches[:limit]]
+
+
+def add_pdfium_candidates(candidates, buildings, components, width, height):
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        return
+
+    if not SOURCE_PDF.exists():
+        return
+
+    pdf = pdfium.PdfDocument(str(SOURCE_PDF))
+    page = pdf[0]
+    page_width, page_height = page.get_size()
+    text_page = page.get_textpage()
+
+    for building in buildings:
+        for term in building_code_terms(building["id"]):
+            search = text_page.search(term, match_case=True, match_whole_word=False)
+            while True:
+                hit = search.get_next()
+                if hit is None:
+                    break
+                start, count = hit
+                xs = []
+                ys = []
+                for char_index in range(start, start + count):
+                    box = text_page.get_charbox(char_index)
+                    xs.extend([box[0], box[2]])
+                    ys.extend([box[1], box[3]])
+                x = ((min(xs) + max(xs)) / 2) * width / page_width
+                y = (page_height - ((min(ys) + max(ys)) / 2)) * height / page_height
+                if -50 <= x <= width + 50 and -50 <= y <= height + 50:
+                    for component_index, distance in near_components(x, y, components):
+                        candidates.setdefault(building["id"], []).append(
+                            {
+                                "engine": "pdfium",
+                                "term": term,
+                                "x": x,
+                                "y": y,
+                                "componentIndex": component_index,
+                                "distance": distance,
+                            }
+                        )
+
+
+def add_pymupdf_candidates(candidates, buildings, components, width, height):
+    try:
+        import fitz
+    except ImportError:
+        return
+
+    if not SOURCE_PDF.exists():
+        return
+
+    document = fitz.open(str(SOURCE_PDF))
+    page = document[0]
+    words_by_text = {}
+    for word in page.get_text("words"):
+        words_by_text.setdefault(word[4], []).append(word)
+
+    for building in buildings:
+        for term in building_code_terms(building["id"]):
+            for word in words_by_text.get(term, []):
+                x0, y0, x1, y1 = word[:4]
+                x = ((x0 + x1) / 2) * width / page.rect.width
+                y = ((y0 + y1) / 2) * height / page.rect.height
+                if -50 <= x <= width + 50 and -50 <= y <= height + 50:
+                    for component_index, distance in near_components(x, y, components):
+                        candidates.setdefault(building["id"], []).append(
+                            {
+                                "engine": "pymupdf",
+                                "term": term,
+                                "x": x,
+                                "y": y,
+                                "componentIndex": component_index,
+                                "distance": distance,
+                            }
+                        )
+
+
+def make_region(component, index, building_id, assignment):
+    region = {
+        "id": f"PDF-MOR-{index:03d}",
+        "shape": component["shape"],
+        "points": component["points"],
+        "pixelBox": component["pixelBox"],
+        "source": assignment,
+        "buildingId": building_id,
+    }
+    return region
+
+
+def assign_regions_to_buildings(components, buildings, target_count, width, height):
+    fallback_components = sorted(components, key=lambda item: item["area"], reverse=True)[:target_count]
+    fallback_components.sort(key=lambda item: (item["pixelBox"][1], item["pixelBox"][0]))
+
+    candidates = {}
+    add_pdfium_candidates(candidates, buildings, components, width, height)
+    add_pymupdf_candidates(candidates, buildings, components, width, height)
+
+    pairs = []
+    engine_priority = {"pdfium": 0, "pymupdf": 1}
+    for building_index, building in enumerate(buildings):
+        for candidate in candidates.get(building["id"], []):
+            if candidate["distance"] > LABEL_ASSIGN_MAX_DISTANCE:
+                continue
+            component = components[candidate["componentIndex"]]
+            pairs.append(
+                (
+                    candidate["distance"],
+                    engine_priority.get(candidate["engine"], 9),
+                    -component["area"],
+                    building_index,
+                    candidate["componentIndex"],
+                    candidate,
+                )
+            )
+
+    assigned = {}
+    used_components = set()
+    for _, _, _, building_index, component_index, candidate in sorted(pairs):
+        if building_index in assigned or component_index in used_components:
+            continue
+        assigned[building_index] = (component_index, candidate)
+        used_components.add(component_index)
+
+    regions = []
+    report = {
+        "assignedByLabel": [],
+        "fallback": [],
+        "componentCount": len(components),
+    }
+    for index, building in enumerate(buildings, start=1):
+        assigned_item = assigned.get(index - 1)
+        if assigned_item:
+            component_index, candidate = assigned_item
+            component = components[component_index]
+            assignment = f"pdf-label:{candidate['engine']}:{candidate['term']}:{candidate['distance']:.1f}px"
+            report["assignedByLabel"].append(
+                {
+                    "buildingId": building["id"],
+                    "regionId": f"PDF-MOR-{index:03d}",
+                    "engine": candidate["engine"],
+                    "term": candidate["term"],
+                    "distance": round(candidate["distance"], 2),
+                    "pixelBox": component["pixelBox"],
+                }
+            )
+        else:
+            fallback_index = min(index - 1, len(fallback_components) - 1)
+            component = fallback_components[fallback_index]
+            assignment = "pdf-magenta-fallback"
+            report["fallback"].append(
+                {
+                    "buildingId": building["id"],
+                    "regionId": f"PDF-MOR-{index:03d}",
+                    "pixelBox": component["pixelBox"],
+                }
+            )
+        regions.append(make_region(component, index, building["id"], assignment))
+
+    report_path = ROOT / "tmp" / "map-region-assignment-report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(
+        f"Map assignment: {len(report['assignedByLabel'])} label-based, "
+        f"{len(report['fallback'])} fallback -> {report_path}"
+    )
+    return regions
+
+def detect_magenta_regions(target_count, buildings):
     image_path = COORDINATE_MAP_IMAGE if COORDINATE_MAP_IMAGE.exists() else MAP_IMAGE
     image = Image.open(image_path).convert("RGB")
     width, height = image.size
@@ -250,11 +460,7 @@ def detect_magenta_regions(target_count):
             }
         )
 
-    regions = sorted(components, key=lambda item: item["area"], reverse=True)[:target_count]
-    regions.sort(key=lambda item: (item["pixelBox"][1], item["pixelBox"][0]))
-    for idx, region in enumerate(regions, start=1):
-        region["id"] = f"PDF-MOR-{idx:03d}"
-        region.pop("area", None)
+    regions = assign_regions_to_buildings(components, buildings, target_count, width, height)
     return regions, width, height
 
 
@@ -316,12 +522,7 @@ def main():
         raise FileNotFoundError(f"Map gorseli bulunamadi: {MAP_IMAGE}")
 
     buildings, work_items = read_buildings()
-    regions, map_width, map_height = detect_magenta_regions(len(buildings))
-    for index, region in enumerate(regions):
-        if index < len(buildings):
-            region["buildingId"] = buildings[index]["id"]
-        else:
-            region["buildingId"] = buildings[0]["id"] if buildings else ""
+    regions, map_width, map_height = detect_magenta_regions(len(buildings), buildings)
 
     data = {
         "map": {

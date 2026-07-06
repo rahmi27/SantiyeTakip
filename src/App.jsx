@@ -357,6 +357,22 @@ function normalizeState(raw) {
   return draft;
 }
 
+function mergeSeedBuildings(savedBuildings = []) {
+  const savedById = new Map(savedBuildings.map((building) => [building.id, building]));
+  return seedData.buildings.map((seedBuilding) => {
+    const saved = savedById.get(seedBuilding.id);
+    if (!saved) return seedBuilding;
+    const workKeys = seedBuilding.works.map((work) => work.key);
+    return {
+      ...seedBuilding,
+      progress: Object.fromEntries(
+        workKeys.map((key) => [key, clampPercent(saved.progress?.[key] ?? seedBuilding.progress?.[key] ?? 0)]),
+      ),
+      files: saved.files || [],
+    };
+  });
+}
+
 function loadInitialState() {
   const saved = readStorage(STORAGE_KEY);
   if (!saved) return copySeed();
@@ -364,6 +380,7 @@ function loadInitialState() {
     const seed = copySeed();
     const parsed = JSON.parse(saved);
     const allWorkKeys = seed.workItems.map((work) => work.key);
+    const seedBuildingIds = new Set(seed.buildings.map((building) => building.id));
     const users = (parsed.users?.length ? parsed.users : seed.users).map((user) => ({
       ...user,
       workPermissions: user.role === "admin" ? allWorkKeys : user.workPermissions || [],
@@ -371,12 +388,11 @@ function loadInitialState() {
     return normalizeState({
       ...seed,
       ...parsed,
-      buildings: parsed.buildings?.length ? parsed.buildings : seedData.buildings,
-      workItems: parsed.workItems?.length ? parsed.workItems : seedData.workItems,
-      regions:
-        parsed.regions?.length && parsed.regions.length >= seedData.regions.length ? parsed.regions : seedData.regions,
+      buildings: mergeSeedBuildings(parsed.buildings || []),
+      workItems: seedData.workItems,
+      regions: seedData.regions,
       users,
-      requests: parsed.requests || [],
+      requests: (parsed.requests || []).filter((request) => seedBuildingIds.has(request.buildingId)),
       progressRanges: parsed.progressRanges?.length ? parsed.progressRanges : seed.progressRanges,
     });
   } catch {
