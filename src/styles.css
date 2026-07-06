@@ -499,7 +499,17 @@ img {
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  cursor: grab;
   background: color-mix(in srgb, var(--accent) 12%, #9fb4cf);
+}
+
+.map-scroll.panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.map-scroll.panning * {
+  cursor: grabbing !important;
 }
 
 .map-scroll-inner {

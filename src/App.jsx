@@ -1623,9 +1623,11 @@ function MapPanel({
 }) {
   const [draftPoints, setDraftPoints] = useState([]);
   const [draftRect, setDraftRect] = useState(null);
+  const [isPanning, setIsPanning] = useState(false);
   const scrollRef = useRef(null);
   const zoomValueRef = useRef(zoom);
   const zoomAnchorRef = useRef(null);
+  const panRef = useRef(null);
   const [fitScale, setFitScale] = useState(0.25);
 
   useEffect(() => {
@@ -1679,6 +1681,43 @@ function MapPanel({
     zoomAnchorRef.current = { clientX: event.clientX, clientY: event.clientY, ratioX, ratioY };
     zoomValueRef.current = nextZoom;
     onZoom(nextZoom);
+  }
+
+  function startMapPan(event) {
+    const element = scrollRef.current;
+    if (!element || manualMode || (event.button !== 0 && event.button !== 1)) return;
+    if (event.button === 0 && event.target.closest?.(".hotspot-shape")) return;
+
+    event.preventDefault();
+    panRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: element.scrollLeft,
+      scrollTop: element.scrollTop,
+    };
+    setIsPanning(true);
+    element.setPointerCapture?.(event.pointerId);
+  }
+
+  function moveMapPan(event) {
+    const pan = panRef.current;
+    const element = scrollRef.current;
+    if (!pan || !element || event.pointerId !== pan.pointerId) return;
+
+    event.preventDefault();
+    element.scrollLeft = pan.scrollLeft - (event.clientX - pan.startX);
+    element.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
+  }
+
+  function stopMapPan(event) {
+    const pan = panRef.current;
+    const element = scrollRef.current;
+    if (!pan || event.pointerId !== pan.pointerId) return;
+
+    panRef.current = null;
+    setIsPanning(false);
+    element?.releasePointerCapture?.(event.pointerId);
   }
 
   function getSvgPoint(event) {
@@ -1837,7 +1876,16 @@ function MapPanel({
         </div>
       </div>
 
-      <div className="map-scroll" ref={scrollRef} onWheel={handleMapWheel}>
+      <div
+        className={`map-scroll ${isPanning ? "panning" : ""}`}
+        ref={scrollRef}
+        onWheel={handleMapWheel}
+        onPointerDown={startMapPan}
+        onPointerMove={moveMapPan}
+        onPointerUp={stopMapPan}
+        onPointerCancel={stopMapPan}
+        onAuxClick={(event) => event.preventDefault()}
+      >
         <div className="map-scroll-inner">
           <div className={`map-canvas ${manualMode ? "manual" : ""}`} style={{ width: `${displayWidth}px` }}>
             <img src={map.image} alt="TBS-2 PDF haritası" />
