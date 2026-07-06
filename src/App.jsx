@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   Camera,
@@ -139,6 +139,8 @@ const defaultProgressRanges = [
 ];
 
 const legacyProgressRangeColors = ["#d93636", "#e0b428", "#1f9d63"];
+const minMapZoom = 0.45;
+const maxMapZoom = 24;
 
 const textFixes = [
   ["Ä°", "İ"],
@@ -381,6 +383,12 @@ function clampPercent(value) {
   const number = Number(value);
   if (Number.isNaN(number)) return 0;
   return Math.min(100, Math.max(0, Math.round(number)));
+}
+
+function clampMapZoom(value) {
+  const number = Number(value);
+  if (Number.isNaN(number)) return 1;
+  return Math.min(maxMapZoom, Math.max(minMapZoom, Number(number.toFixed(3))));
 }
 
 function getBuildingProgress(building) {
@@ -1616,7 +1624,26 @@ function MapPanel({
   const [draftPoints, setDraftPoints] = useState([]);
   const [draftRect, setDraftRect] = useState(null);
   const scrollRef = useRef(null);
+  const zoomValueRef = useRef(zoom);
+  const zoomAnchorRef = useRef(null);
   const [fitScale, setFitScale] = useState(0.25);
+
+  useEffect(() => {
+    zoomValueRef.current = zoom;
+  }, [zoom]);
+
+  useLayoutEffect(() => {
+    const anchor = zoomAnchorRef.current;
+    if (!anchor) return;
+    zoomAnchorRef.current = null;
+
+    const element = scrollRef.current;
+    const canvas = element?.querySelector(".map-canvas");
+    if (!element || !canvas) return;
+    const box = canvas.getBoundingClientRect();
+    element.scrollLeft += box.left + anchor.ratioX * box.width - anchor.clientX;
+    element.scrollTop += box.top + anchor.ratioY * box.height - anchor.clientY;
+  }, [fitScale, zoom]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -1634,6 +1661,25 @@ function MapPanel({
     observer.observe(element);
     return () => observer.disconnect();
   }, [map.height, map.width]);
+
+  function handleMapWheel(event) {
+    const element = scrollRef.current;
+    const canvas = element?.querySelector(".map-canvas");
+    if (!element || !canvas) return;
+    event.preventDefault();
+    const box = canvas.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+
+    const ratioX = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+    const ratioY = Math.min(1, Math.max(0, (event.clientY - box.top) / box.height));
+    const delta = Math.min(500, Math.max(-500, event.deltaY));
+    const nextZoom = clampMapZoom(zoomValueRef.current * Math.exp(-delta * 0.0018));
+    if (nextZoom === zoomValueRef.current) return;
+
+    zoomAnchorRef.current = { clientX: event.clientX, clientY: event.clientY, ratioX, ratioY };
+    zoomValueRef.current = nextZoom;
+    onZoom(nextZoom);
+  }
 
   function getSvgPoint(event) {
     const box = event.currentTarget.getBoundingClientRect();
@@ -1773,25 +1819,25 @@ function MapPanel({
               </button>
             </>
           )}
-          <button className="icon-button" title="Uzaklaştır" onClick={() => onZoom(Math.max(0.45, zoom - 0.5))}>
+          <button className="icon-button" title="Uzaklaştır" onClick={() => onZoom(clampMapZoom(zoom - 0.5))}>
             <ZoomOut size={17} />
           </button>
           <input
             aria-label="Harita yakınlaştırma"
             type="range"
-            min="0.45"
-            max="24"
+            min={minMapZoom}
+            max={maxMapZoom}
             step="0.05"
             value={zoom}
-            onChange={(event) => onZoom(Number(event.target.value))}
+            onChange={(event) => onZoom(clampMapZoom(event.target.value))}
           />
-          <button className="icon-button" title="Yakınlaştır" onClick={() => onZoom(Math.min(24, zoom + 0.5))}>
+          <button className="icon-button" title="Yakınlaştır" onClick={() => onZoom(clampMapZoom(zoom + 0.5))}>
             <ZoomIn size={17} />
           </button>
         </div>
       </div>
 
-      <div className="map-scroll" ref={scrollRef}>
+      <div className="map-scroll" ref={scrollRef} onWheel={handleMapWheel}>
         <div className="map-scroll-inner">
           <div className={`map-canvas ${manualMode ? "manual" : ""}`} style={{ width: `${displayWidth}px` }}>
             <img src={map.image} alt="TBS-2 PDF haritası" />

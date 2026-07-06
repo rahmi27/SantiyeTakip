@@ -498,6 +498,7 @@ img {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   background: color-mix(in srgb, var(--accent) 12%, #9fb4cf);
 }
 
