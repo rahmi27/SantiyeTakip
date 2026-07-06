@@ -1626,7 +1626,7 @@ function MapPanel({
   const [isPanning, setIsPanning] = useState(false);
   const scrollRef = useRef(null);
   const zoomValueRef = useRef(zoom);
-  const zoomAnchorRef = useRef(null);
+  const zoomScrollRestoreRef = useRef(null);
   const panRef = useRef(null);
   const [fitScale, setFitScale] = useState(0.25);
 
@@ -1635,16 +1635,14 @@ function MapPanel({
   }, [zoom]);
 
   useLayoutEffect(() => {
-    const anchor = zoomAnchorRef.current;
-    if (!anchor) return;
-    zoomAnchorRef.current = null;
+    const restore = zoomScrollRestoreRef.current;
+    if (!restore) return;
+    zoomScrollRestoreRef.current = null;
 
     const element = scrollRef.current;
-    const canvas = element?.querySelector(".map-canvas");
-    if (!element || !canvas) return;
-    const box = canvas.getBoundingClientRect();
-    element.scrollLeft += box.left + anchor.ratioX * box.width - anchor.clientX;
-    element.scrollTop += box.top + anchor.ratioY * box.height - anchor.clientY;
+    if (!element) return;
+    element.scrollLeft = restore.scrollLeft;
+    element.scrollTop = restore.scrollTop;
   }, [fitScale, zoom]);
 
   useEffect(() => {
@@ -1666,19 +1664,14 @@ function MapPanel({
 
   function handleMapWheel(event) {
     const element = scrollRef.current;
-    const canvas = element?.querySelector(".map-canvas");
-    if (!element || !canvas) return;
+    if (!element) return;
     event.preventDefault();
-    const box = canvas.getBoundingClientRect();
-    if (!box.width || !box.height) return;
 
-    const ratioX = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
-    const ratioY = Math.min(1, Math.max(0, (event.clientY - box.top) / box.height));
     const delta = Math.min(500, Math.max(-500, event.deltaY));
     const nextZoom = clampMapZoom(zoomValueRef.current * Math.exp(-delta * 0.0018));
     if (nextZoom === zoomValueRef.current) return;
 
-    zoomAnchorRef.current = { clientX: event.clientX, clientY: event.clientY, ratioX, ratioY };
+    zoomScrollRestoreRef.current = { scrollLeft: element.scrollLeft, scrollTop: element.scrollTop };
     zoomValueRef.current = nextZoom;
     onZoom(nextZoom);
   }
