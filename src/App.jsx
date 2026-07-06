@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   Camera,
@@ -1624,35 +1624,31 @@ function MapPanel({
   const [draftPoints, setDraftPoints] = useState([]);
   const [draftRect, setDraftRect] = useState(null);
   const [isPanning, setIsPanning] = useState(false);
-  const scrollRef = useRef(null);
+  const viewportRef = useRef(null);
   const zoomValueRef = useRef(zoom);
-  const zoomScrollRestoreRef = useRef(null);
+  const panValueRef = useRef({ x: 0, y: 0 });
   const panRef = useRef(null);
   const [fitScale, setFitScale] = useState(0.25);
+  const [viewportSize, setViewportSize] = useState({ width: 1, height: 1 });
+  const [pan, setPan] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     zoomValueRef.current = zoom;
   }, [zoom]);
 
-  useLayoutEffect(() => {
-    const restore = zoomScrollRestoreRef.current;
-    if (!restore) return;
-    zoomScrollRestoreRef.current = null;
-
-    const element = scrollRef.current;
-    if (!element) return;
-    element.scrollLeft = restore.scrollLeft;
-    element.scrollTop = restore.scrollTop;
-  }, [fitScale, zoom]);
+  useEffect(() => {
+    panValueRef.current = pan;
+  }, [pan]);
 
   useEffect(() => {
-    const element = scrollRef.current;
+    const element = viewportRef.current;
     if (!element) return undefined;
 
     function updateFitScale() {
-      const width = Math.max(1, element.clientWidth - 24);
-      const height = Math.max(1, element.clientHeight - 24);
-      const nextScale = Math.min(1, width / map.width, height / map.height);
+      const width = Math.max(1, element.clientWidth);
+      const height = Math.max(1, element.clientHeight);
+      const nextScale = Math.min(1, (width - 24) / map.width, (height - 24) / map.height);
+      setViewportSize({ width, height });
       setFitScale(Number(Math.max(0.05, nextScale).toFixed(4)));
     }
 
@@ -1662,22 +1658,79 @@ function MapPanel({
     return () => observer.disconnect();
   }, [map.height, map.width]);
 
+  function clampMapPan(nextPan, nextZoom = zoomValueRef.current, nextFitScale = fitScale, size = viewportSize) {
+    const width = Math.max(1, size.width);
+    const height = Math.max(1, size.height);
+    const mapWidth = map.width * nextFitScale * nextZoom;
+    const mapHeight = map.height * nextFitScale * nextZoom;
+
+    const x =
+      mapWidth <= width
+        ? (width - mapWidth) / 2
+        : Math.min(0, Math.max(width - mapWidth, nextPan.x));
+    const y =
+      mapHeight <= height
+        ? (height - mapHeight) / 2
+        : Math.min(0, Math.max(height - mapHeight, nextPan.y));
+
+    return { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) };
+  }
+
+  useEffect(() => {
+    setPan((previous) => clampMapPan(previous, zoom, fitScale, viewportSize));
+  }, [fitScale, map.height, map.width, viewportSize.height, viewportSize.width, zoom]);
+
+  function applyPan(nextPan, nextZoom = zoomValueRef.current) {
+    const clamped = clampMapPan(nextPan, nextZoom);
+    panValueRef.current = clamped;
+    setPan(clamped);
+  }
+
+  function zoomAtPoint(clientX, clientY, nextZoom) {
+    const element = viewportRef.current;
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    const currentZoom = zoomValueRef.current;
+    const currentPan = panValueRef.current;
+    const pointX = clientX - rect.left;
+    const pointY = clientY - rect.top;
+    const mapPointX = (pointX - currentPan.x) / currentZoom;
+    const mapPointY = (pointY - currentPan.y) / currentZoom;
+    const nextPan = {
+      x: pointX - mapPointX * nextZoom,
+      y: pointY - mapPointY * nextZoom,
+    };
+
+    zoomValueRef.current = nextZoom;
+    onZoom(nextZoom);
+    applyPan(nextPan, nextZoom);
+  }
+
+  function zoomAtViewportCenter(nextZoom) {
+    const element = viewportRef.current;
+    if (!element) {
+      onZoom(nextZoom);
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    zoomAtPoint(rect.left + rect.width / 2, rect.top + rect.height / 2, nextZoom);
+  }
+
   function handleMapWheel(event) {
-    const element = scrollRef.current;
+    const element = viewportRef.current;
     if (!element) return;
     event.preventDefault();
+    event.stopPropagation();
 
     const delta = Math.min(500, Math.max(-500, event.deltaY));
     const nextZoom = clampMapZoom(zoomValueRef.current * Math.exp(-delta * 0.0018));
     if (nextZoom === zoomValueRef.current) return;
 
-    zoomScrollRestoreRef.current = { scrollLeft: element.scrollLeft, scrollTop: element.scrollTop };
-    zoomValueRef.current = nextZoom;
-    onZoom(nextZoom);
+    zoomAtPoint(event.clientX, event.clientY, nextZoom);
   }
 
   function startMapPan(event) {
-    const element = scrollRef.current;
+    const element = viewportRef.current;
     if (!element || manualMode || (event.button !== 0 && event.button !== 1)) return;
     if (event.button === 0 && event.target.closest?.(".hotspot-shape")) return;
 
@@ -1686,26 +1739,27 @@ function MapPanel({
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      scrollLeft: element.scrollLeft,
-      scrollTop: element.scrollTop,
+      pan: panValueRef.current,
     };
     setIsPanning(true);
     element.setPointerCapture?.(event.pointerId);
   }
 
   function moveMapPan(event) {
-    const pan = panRef.current;
-    const element = scrollRef.current;
-    if (!pan || !element || event.pointerId !== pan.pointerId) return;
+    const activePan = panRef.current;
+    const element = viewportRef.current;
+    if (!activePan || !element || event.pointerId !== activePan.pointerId) return;
 
     event.preventDefault();
-    element.scrollLeft = pan.scrollLeft - (event.clientX - pan.startX);
-    element.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
+    applyPan({
+      x: activePan.pan.x + event.clientX - activePan.startX,
+      y: activePan.pan.y + event.clientY - activePan.startY,
+    });
   }
 
   function stopMapPan(event) {
     const pan = panRef.current;
-    const element = scrollRef.current;
+    const element = viewportRef.current;
     if (!pan || event.pointerId !== pan.pointerId) return;
 
     panRef.current = null;
@@ -1811,7 +1865,9 @@ function MapPanel({
         height: Math.abs(draftRect.endY - draftRect.startY),
       }
     : null;
-  const displayWidth = Math.round(map.width * fitScale * zoom);
+  const baseWidth = Math.round(map.width * fitScale);
+  const baseHeight = Math.round(map.height * fitScale);
+  const mapTransform = `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`;
 
   return (
     <section className="map-section">
@@ -1851,7 +1907,7 @@ function MapPanel({
               </button>
             </>
           )}
-          <button className="icon-button" title="Uzaklaştır" onClick={() => onZoom(clampMapZoom(zoom - 0.5))}>
+          <button className="icon-button" title="Uzaklaştır" onClick={() => zoomAtViewportCenter(clampMapZoom(zoom - 0.5))}>
             <ZoomOut size={17} />
           </button>
           <input
@@ -1861,9 +1917,9 @@ function MapPanel({
             max={maxMapZoom}
             step="0.05"
             value={zoom}
-            onChange={(event) => onZoom(clampMapZoom(event.target.value))}
+            onChange={(event) => zoomAtViewportCenter(clampMapZoom(event.target.value))}
           />
-          <button className="icon-button" title="Yakınlaştır" onClick={() => onZoom(clampMapZoom(zoom + 0.5))}>
+          <button className="icon-button" title="Yakınlaştır" onClick={() => zoomAtViewportCenter(clampMapZoom(zoom + 0.5))}>
             <ZoomIn size={17} />
           </button>
         </div>
@@ -1871,7 +1927,7 @@ function MapPanel({
 
       <div
         className={`map-scroll ${isPanning ? "panning" : ""}`}
-        ref={scrollRef}
+        ref={viewportRef}
         onWheel={handleMapWheel}
         onPointerDown={startMapPan}
         onPointerMove={moveMapPan}
@@ -1880,7 +1936,14 @@ function MapPanel({
         onAuxClick={(event) => event.preventDefault()}
       >
         <div className="map-scroll-inner">
-          <div className={`map-canvas ${manualMode ? "manual" : ""}`} style={{ width: `${displayWidth}px` }}>
+          <div
+            className={`map-canvas ${manualMode ? "manual" : ""}`}
+            style={{
+              width: `${baseWidth}px`,
+              height: `${baseHeight}px`,
+              transform: mapTransform,
+            }}
+          >
             <img src={map.image} alt="TBS-2 PDF haritası" />
             <svg
               viewBox={`0 0 ${map.width} ${map.height}`}
