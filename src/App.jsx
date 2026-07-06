@@ -319,7 +319,12 @@ function sanitizeThemeSettings(settings) {
 
 function normalizeState(raw) {
   const draft = JSON.parse(JSON.stringify(raw));
-  draft.map = { ...seedData.map, ...(draft.map || {}) };
+  draft.map = {
+    ...(draft.map || {}),
+    image: seedData.map.image,
+    width: seedData.map.width,
+    height: seedData.map.height,
+  };
   draft.progressRanges = sanitizeProgressRanges(draft.progressRanges || defaultProgressRanges);
   draft.themeSettings = sanitizeThemeSettings(draft.themeSettings);
   draft.logs = (draft.logs || []).filter(isSessionLog);
@@ -1691,14 +1696,16 @@ function MapPanel({
     if (!element) return;
     const rect = element.getBoundingClientRect();
     const currentZoom = zoomValueRef.current;
+    const currentScale = fitScale * currentZoom;
+    const nextScale = fitScale * nextZoom;
     const currentPan = panValueRef.current;
     const pointX = clientX - rect.left;
     const pointY = clientY - rect.top;
-    const mapPointX = (pointX - currentPan.x) / currentZoom;
-    const mapPointY = (pointY - currentPan.y) / currentZoom;
+    const mapPointX = (pointX - currentPan.x) / currentScale;
+    const mapPointY = (pointY - currentPan.y) / currentScale;
     const nextPan = {
-      x: pointX - mapPointX * nextZoom,
-      y: pointY - mapPointY * nextZoom,
+      x: pointX - mapPointX * nextScale,
+      y: pointY - mapPointY * nextScale,
     };
 
     zoomValueRef.current = nextZoom;
@@ -1865,9 +1872,10 @@ function MapPanel({
         height: Math.abs(draftRect.endY - draftRect.startY),
       }
     : null;
-  const baseWidth = Math.round(map.width * fitScale);
-  const baseHeight = Math.round(map.height * fitScale);
-  const mapTransform = `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`;
+  const baseWidth = map.width;
+  const baseHeight = map.height;
+  const totalScale = fitScale * zoom;
+  const mapTransform = `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${totalScale})`;
 
   return (
     <section className="map-section">

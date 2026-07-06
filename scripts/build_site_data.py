@@ -12,6 +12,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_XLSX = ROOT / "source" / "teklif.xlsx"
 MAP_IMAGE = ROOT / "public" / "assets" / "site-map.png"
+COORDINATE_MAP_IMAGE = ROOT / "public" / "assets" / "site-map-coordinate.png"
 OUTPUT_JSON = ROOT / "src" / "data" / "siteData.json"
 
 
@@ -149,7 +150,8 @@ def convex_hull(points):
 
 
 def detect_magenta_regions(target_count):
-    image = Image.open(MAP_IMAGE).convert("RGB")
+    image_path = COORDINATE_MAP_IMAGE if COORDINATE_MAP_IMAGE.exists() else MAP_IMAGE
+    image = Image.open(image_path).convert("RGB")
     width, height = image.size
     mask = Image.new("L", (width, height), 0)
     mask_pixels = mask.load()
@@ -323,7 +325,7 @@ def main():
 
     data = {
         "map": {
-            "image": "/assets/site-map.png",
+            "image": "/assets/site-map.png?v=hires-640",
             "width": map_width,
             "height": map_height,
         },
