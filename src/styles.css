@@ -426,6 +426,37 @@ img {
   border-radius: inherit;
 }
 
+.category-progress-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+.category-progress-grid div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 9px;
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.category-progress-grid span {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.category-progress-grid strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.category-progress-grid.admin {
+  margin: 0 0 12px;
+}
+
 .map-section {
   display: flex;
   flex-direction: column;
@@ -1374,8 +1405,30 @@ img {
   border-top: 1px solid var(--line);
 }
 
+.ready-work-select {
+  grid-column: 1 / -1;
+}
+
 .work-panel .add-work-form {
   grid-template-columns: minmax(0, 1fr) minmax(82px, 0.42fr) minmax(82px, 0.42fr) minmax(108px, 0.55fr);
+}
+
+.request-edit-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.request-edit-controls input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 8px;
+  color: var(--ink);
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 
 .work-panel .add-work-form button {
@@ -1983,6 +2036,65 @@ img {
   background: var(--panel-soft);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.ready-work-manager {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.ready-work-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(130px, 0.45fr) auto;
+  gap: 8px;
+}
+
+.ready-work-form input,
+.ready-work-form select {
+  min-height: 36px;
+  padding: 0 8px;
+  color: var(--ink);
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.ready-work-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.ready-work-list span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 7px;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px;
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.ready-work-list b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ready-work-list em {
+  color: var(--text-soft);
+  font-size: 11px;
+  font-style: normal;
 }
 
 .work-permission-grid {

@@ -82,6 +82,7 @@ const initialNewWork = {
   quantity: "",
   weight: "",
   category: "sihhi",
+  sourceWorkKey: "",
 };
 
 const workCategoryMeta = {
@@ -432,15 +433,28 @@ function statusTone(status) {
   return "info";
 }
 
+function canForemanAnswerRequest(user, request) {
+  if (!user || user.role === "admin" || !request) return false;
+  const ownRevision = request.status === "revision" && request.createdBy === user.id;
+  const adminTask = request.adminTask && ["pending", "revision"].includes(request.status) && canAccess(user, request.buildingId);
+  return ownRevision || adminTask;
+}
+
+function canEditRequestNote(user, request) {
+  if (!user || !request) return false;
+  if (user.role === "admin") return true;
+  return request.createdBy === user.id && request.status !== "approved";
+}
+
 function formatQuantity(value) {
   if (!value) return "0";
-  return Number(value).toLocaleString("tr-TR", { maximumFractionDigits: 1 });
+  return Math.round(Number(value)).toLocaleString("tr-TR", { maximumFractionDigits: 0 });
 }
 
 function clampQuantity(value) {
   const number = Number(value);
   if (Number.isNaN(number)) return 0;
-  return Math.max(0, number);
+  return Math.max(0, Math.round(number));
 }
 
 function getWorkCompletedQuantity(building, work) {
@@ -449,7 +463,7 @@ function getWorkCompletedQuantity(building, work) {
 }
 
 function getWorkRemainingQuantity(building, work) {
-  return Math.max(0, Number(work?.quantity || 0) - getWorkCompletedQuantity(building, work));
+  return Math.max(0, Math.round(Number(work?.quantity || 0) - getWorkCompletedQuantity(building, work)));
 }
 
 function getWorkReservedQuantity(requests, buildingId, workKey, excludeRequestId = "") {
@@ -504,6 +518,37 @@ function WorkCategorySelect({ value, onChange }) {
   );
 }
 
+function ReadyWorkSelect({ workItems, value, onChange }) {
+  const readyItems = (workItems || []).filter((work) => !isForemanHiddenWork(work));
+  return (
+    <select
+      className="ready-work-select"
+      value={value || ""}
+      onChange={(event) => onChange(event.target.value)}
+      aria-label="Hazır iş kalemi"
+    >
+      <option value="">Hazır iş seç</option>
+      {readyItems.map((work) => (
+        <option key={work.key} value={work.key}>
+          {work.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function makeNewWorkFromReady(previous, workItems, workKey) {
+  const ready = (workItems || []).find((work) => work.key === workKey);
+  if (!ready) return { ...previous, sourceWorkKey: "" };
+  return {
+    ...previous,
+    sourceWorkKey: workKey,
+    label: ready.label,
+    category: getWorkCategory(ready),
+    weight: ready.weight ?? previous.weight,
+  };
+}
+
 function groupWorksByCategory(works) {
   return Object.entries(
     works.reduce((groups, work) => {
@@ -520,6 +565,14 @@ function groupWorksByCategory(works) {
       items,
     }))
     .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, "tr"));
+}
+
+function getCategoryProgressItems(building, works) {
+  return groupWorksByCategory(works).map((category) => ({
+    ...category,
+    progress: getWorksProgress(building, category.items),
+    weight: category.items.reduce((sum, work) => sum + Number(work.weight || 0), 0),
+  }));
 }
 
 function readFileAsDataUrl(file) {
@@ -694,6 +747,7 @@ function App() {
       if (!building) return;
       building.progress = building.progress || {};
       building.progress[workKey] = clampPercent(value);
+      building.updatedAt = new Date().toISOString();
       draft.logs.unshift(makeLog(currentUser, "İş yüzdesi güncellendi", `${building.code} / ${workKey}: ${building.progress[workKey]}%`));
     });
   }
@@ -704,6 +758,7 @@ function App() {
       const work = building?.works.find((item) => item.key === workKey);
       if (!work) return;
       work.quantity = clampQuantity(value);
+      building.updatedAt = new Date().toISOString();
       draft.logs.unshift(makeLog(currentUser, "İş miktarı güncellendi", `${building.code} / ${work.label}: ${formatQuantity(work.quantity)}`));
     });
   }
@@ -714,6 +769,7 @@ function App() {
       const work = building?.works.find((item) => item.key === workKey);
       if (!work) return;
       work.weight = clampPercent(value);
+      building.updatedAt = new Date().toISOString();
       draft.logs.unshift(makeLog(currentUser, "İş ağırlığı güncellendi", `${building.code} / ${work.label}: ${work.weight}%`));
     });
   }
@@ -724,6 +780,7 @@ function App() {
       const work = building?.works.find((item) => item.key === workKey);
       if (!work) return;
       work.label = label;
+      building.updatedAt = new Date().toISOString();
       const globalWork = draft.workItems.find((item) => item.key === workKey);
       if (globalWork) globalWork.label = label;
       draft.logs.unshift(makeLog(currentUser, "İş kalemi adı güncellendi", `${building.code} / ${label}`));
@@ -751,8 +808,44 @@ function App() {
       });
       building.progress = building.progress || {};
       building.progress[key] = 0;
+      building.updatedAt = new Date().toISOString();
       draft.workItems.push({ key, label: cleanLabel, category: getSafeWorkCategory(payload?.category) });
       draft.logs.unshift(makeLog(currentUser, "Ek iş kalemi eklendi", `${building.code} / ${cleanLabel}`));
+    });
+  }
+
+  function addGlobalWorkItem(workInput) {
+    const payload = typeof workInput === "string" ? { ...initialNewWork, label: workInput } : workInput;
+    const cleanLabel = String(payload?.label || "").trim();
+    if (!cleanLabel) return;
+    updateState((draft) => {
+      const keyBase = cleanLabel
+        .toLocaleLowerCase("tr-TR")
+        .replace(/[^a-z0-9ğıüşöç]+/gi, "_")
+        .replace(/^_+|_+$/g, "");
+      const key = `${keyBase || "hazir_is"}_${Date.now()}`;
+      draft.workItems.push({
+        key,
+        label: cleanLabel,
+        category: getSafeWorkCategory(payload?.category),
+      });
+      draft.users.forEach((user) => {
+        if (user.role === "admin") user.workPermissions = [...(user.workPermissions || []), key];
+      });
+      draft.logs.unshift(makeLog(currentUser, "Hazır iş kalemi eklendi", cleanLabel));
+    });
+  }
+
+  function deleteGlobalWorkItem(workKey) {
+    if (!confirmAction("Bu hazır iş kalemini listeden kaldırmak istediğine emin misin?")) return;
+    updateState((draft) => {
+      const work = draft.workItems.find((item) => item.key === workKey);
+      if (!work || isForemanHiddenWork(work)) return;
+      draft.workItems = draft.workItems.filter((item) => item.key !== workKey);
+      draft.users.forEach((user) => {
+        user.workPermissions = (user.workPermissions || []).filter((key) => key !== workKey);
+      });
+      draft.logs.unshift(makeLog(currentUser, "Hazır iş kalemi kaldırıldı", work.label));
     });
   }
 
@@ -764,6 +857,7 @@ function App() {
       if (!building || !work) return;
       building.works = building.works.filter((item) => item.key !== workKey);
       if (building.progress) delete building.progress[workKey];
+      building.updatedAt = new Date().toISOString();
       const stillUsed = draft.buildings.some((item) => item.works.some((buildingWork) => buildingWork.key === workKey));
       if (!stillUsed) {
         draft.workItems = draft.workItems.filter((item) => item.key !== workKey);
@@ -860,6 +954,7 @@ function App() {
         const addPercent = (Number(item.approvedQuantity || 0) / Number(work.quantity)) * 100;
         building.progress[item.workKey] = clampPercent(Number(building.progress[item.workKey] || 0) + addPercent);
       });
+      building.updatedAt = new Date().toISOString();
       draft.logs.unshift(makeLog(currentUser, "Talep onaylandı", `${building.code} / ${request.id}`));
     });
   }
@@ -874,6 +969,28 @@ function App() {
       request.reviewedAt = new Date().toISOString();
       request.reviewedBy = currentUser.name;
       draft.logs.unshift(makeLog(currentUser, "Revize istendi", `${request.buildingId} / ${request.id}`));
+    });
+  }
+
+  function updateRequest(requestId, patch) {
+    updateState((draft) => {
+      const request = draft.requests.find((item) => item.id === requestId);
+      if (!request) return;
+      if (patch.note !== undefined) request.note = patch.note;
+      if (patch.adminNote !== undefined) request.adminNote = patch.adminNote;
+      if (patch.revisionReason !== undefined) request.revisionReason = patch.revisionReason;
+      request.updatedAt = new Date().toISOString();
+      draft.logs.unshift(makeLog(currentUser, "Talep notu güncellendi", request.id));
+    });
+  }
+
+  function cancelRequest(requestId) {
+    if (!confirmAction("Bu talebi iptal etmek istediğine emin misin?")) return;
+    updateState((draft) => {
+      const request = draft.requests.find((item) => item.id === requestId);
+      if (!request || request.status === "approved") return;
+      draft.requests = draft.requests.filter((item) => item.id !== requestId);
+      draft.logs.unshift(makeLog(currentUser, "Talep iptal edildi", request.id));
     });
   }
 
@@ -1238,6 +1355,8 @@ function App() {
           onApprove={approveRequest}
           onRevision={requestRevision}
           onAnswerRevision={answerRevision}
+          onUpdateRequest={updateRequest}
+          onCancelRequest={cancelRequest}
           onOpenBuilding={(buildingId) => {
             setSelectedBuildingId(buildingId);
             const region = state.regions.find((item) => item.buildingId === buildingId);
@@ -1253,6 +1372,7 @@ function App() {
       {activeTab === "buildings" && currentUser.role === "admin" && (
         <BuildingsPanel
           buildings={state.buildings}
+          workItems={state.workItems}
           selectedBuildingId={selectedBuilding?.id}
           onSelectBuilding={(buildingId) => {
             if (selectedBuilding?.id === buildingId) {
@@ -1291,6 +1411,8 @@ function App() {
           onToggleWorkPermission={toggleUserWorkPermission}
           onBulkPermissions={bulkSetPermissions}
           onBulkWorkPermissions={bulkSetWorkPermissions}
+          onAddGlobalWorkItem={addGlobalWorkItem}
+          onDeleteGlobalWorkItem={deleteGlobalWorkItem}
           onAddUser={addUser}
           onDeleteUser={deleteUser}
         />
@@ -1316,6 +1438,7 @@ function App() {
           region={openRegion}
           regions={state.regions}
           buildings={state.buildings}
+          workItems={state.workItems}
           requests={state.requests.filter((request) => request.buildingId === openBuilding.id)}
           allRequests={state.requests}
           progressRanges={state.progressRanges}
@@ -1333,6 +1456,8 @@ function App() {
           onApproveRequest={approveRequest}
           onRevision={requestRevision}
           onAnswerRevision={answerRevision}
+          onUpdateRequest={updateRequest}
+          onCancelRequest={cancelRequest}
           onUpdateRegionBuilding={updateRegionBuilding}
           onUpdateRegionGeometry={updateRegionGeometry}
           onDeleteRegion={deleteRegion}
@@ -1614,7 +1739,7 @@ function MapPanel({
     <section className="map-section">
       <div className="map-toolbar">
         <div>
-          <strong>PDF Harita</strong>
+          <strong>5. Zırhlı Tugayı Vaziyet Planı</strong>
           <span>{regions.length} mor şekil</span>
         </div>
         <div className="map-actions">
@@ -1792,6 +1917,7 @@ function BuildingModal({
   region,
   regions,
   buildings,
+  workItems,
   requests,
   allRequests,
   progressRanges,
@@ -1809,6 +1935,8 @@ function BuildingModal({
   onApproveRequest,
   onRevision,
   onAnswerRevision,
+  onUpdateRequest,
+  onCancelRequest,
   onUpdateRegionBuilding,
   onUpdateRegionGeometry,
   onDeleteRegion,
@@ -1834,6 +1962,7 @@ function BuildingModal({
     user.role === "admin"
       ? building.works
       : building.works.filter((work) => allowedWorkKeys.includes(work.key) && !isForemanHiddenWork(work));
+  const categoryProgressItems = getCategoryProgressItems(building, visibleWorks);
   const requestableWorks = visibleWorks.filter(
     (work) =>
       allowedWorkKeys.includes(work.key) &&
@@ -1996,13 +2125,24 @@ function BuildingModal({
             <div className="big-progress">
               <i style={{ width: `${progress}%`, background: progressColor }} />
             </div>
+            <div className="category-progress-grid">
+              {categoryProgressItems.map((category) => (
+                <div key={category.key}>
+                  <span>{category.label}</span>
+                  <strong>{category.progress}%</strong>
+                  <div className="mini-progress">
+                    <i style={{ width: `${category.progress}%`, background: getProgressColor(category.progress, progressRanges) }} />
+                  </div>
+                </div>
+              ))}
+            </div>
 
             <div className="work-list">
               {groupWorksByCategory(visibleWorks).map((category) => (
                 <details className="work-category" key={category.key}>
                   <summary>
                     <span>{category.label}</span>
-                    <b>{category.items.length}</b>
+                    <b>{getWorksProgress(building, category.items)}%</b>
                     <ChevronDown size={16} />
                   </summary>
                   {category.items.map((work) => {
@@ -2086,6 +2226,11 @@ function BuildingModal({
                   setNewWork(initialNewWork);
                 }}
               >
+                <ReadyWorkSelect
+                  workItems={workItems}
+                  value={newWork.sourceWorkKey}
+                  onChange={(workKey) => setNewWork((previous) => makeNewWorkFromReady(previous, workItems, workKey))}
+                />
                 <input
                   value={newWork.label}
                   onChange={(event) => setNewWork((previous) => ({ ...previous, label: event.target.value }))}
@@ -2269,8 +2414,50 @@ function BuildingModal({
                     {request.photo && <img className="request-photo" src={request.photo} alt="Talep eki" />}
                     {request.revisionAnswer && <p className="request-note">Formen cevabı: {request.revisionAnswer}</p>}
                     {request.answerPhoto && <img className="request-photo" src={request.answerPhoto} alt="Revize cevabı eki" />}
-                    {user.role !== "admin" && request.status === "revision" && request.createdBy === user.id && (
+                    {canEditRequestNote(user, request) && (
+                      <div className="request-edit-controls">
+                        <input
+                          value={user.role === "admin" ? draft.note : answerDraft.editNote ?? request.note ?? ""}
+                          onChange={(event) => {
+                            if (user.role === "admin") {
+                              setReviewDrafts((previous) => ({
+                                ...previous,
+                                [request.id]: { ...draft, note: event.target.value },
+                              }));
+                            } else {
+                              setRevisionAnswers((previous) => ({
+                                ...previous,
+                                [request.id]: { ...(previous[request.id] || {}), editNote: event.target.value },
+                              }));
+                            }
+                          }}
+                          placeholder={user.role === "admin" ? "Admin notu / revize sebebi" : "Talep notu"}
+                        />
+                        <button
+                          className="secondary-action"
+                          type="button"
+                          onClick={() =>
+                            user.role === "admin"
+                              ? onUpdateRequest(request.id, {
+                                  adminNote: draft.note,
+                                  revisionReason: request.status === "revision" ? draft.note : request.revisionReason,
+                                })
+                              : onUpdateRequest(request.id, { note: answerDraft.editNote ?? request.note ?? "" })
+                          }
+                        >
+                          <Edit3 size={16} />
+                          Kaydet
+                        </button>
+                        {request.status !== "approved" && (
+                          <button className="icon-button danger" title="Talebi iptal et" type="button" onClick={() => onCancelRequest(request.id)}>
+                            <X size={16} />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {canForemanAnswerRequest(user, request) && (
                       <div className="review-controls">
+                        {items.length > 0 && (
                         <label>
                           Güncel talep miktarı
                           <div className="approval-quantity-list">
@@ -2310,8 +2497,9 @@ function BuildingModal({
                             })}
                           </div>
                         </label>
+                        )}
                         <label>
-                          Revize cevabı
+                          {request.adminTask ? "İstek cevabı" : "Revize cevabı"}
                           <input
                             value={answerDraft.note || ""}
                             onChange={(event) =>
@@ -2406,7 +2594,17 @@ function BuildingModal({
   );
 }
 
-function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, onAnswerRevision, onOpenBuilding }) {
+function RequestsPanel({
+  user,
+  requests,
+  buildingsById,
+  onApprove,
+  onRevision,
+  onAnswerRevision,
+  onUpdateRequest,
+  onCancelRequest,
+  onOpenBuilding,
+}) {
   const [status, setStatus] = useState("all");
   const [userFilter, setUserFilter] = useState("all");
   const [drafts, setDrafts] = useState({});
@@ -2492,7 +2690,45 @@ function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, o
                   <Eye size={16} />
                   Aç
                 </button>
-                {user.role !== "admin" && request.status === "revision" && request.createdBy === user.id && (
+                {canEditRequestNote(user, request) && (
+                  <>
+                    <input
+                      className="wide-note-input"
+                      value={user.role === "admin" ? draft.note : answers[`edit-${request.id}`] ?? request.note ?? ""}
+                      onChange={(event) => {
+                        if (user.role === "admin") {
+                          setDrafts((previous) => ({
+                            ...previous,
+                            [request.id]: { ...draft, note: event.target.value },
+                          }));
+                        } else {
+                          setAnswers((previous) => ({ ...previous, [`edit-${request.id}`]: event.target.value }));
+                        }
+                      }}
+                      placeholder={user.role === "admin" ? "Admin notu / revize sebebi" : "Talep notu"}
+                    />
+                    <button
+                      className="secondary-action"
+                      onClick={() =>
+                        user.role === "admin"
+                          ? onUpdateRequest(request.id, {
+                              adminNote: draft.note,
+                              revisionReason: request.status === "revision" ? draft.note : request.revisionReason,
+                            })
+                          : onUpdateRequest(request.id, { note: answers[`edit-${request.id}`] ?? request.note ?? "" })
+                      }
+                    >
+                      <Edit3 size={16} />
+                      Kaydet
+                    </button>
+                    {request.status !== "approved" && (
+                      <button className="icon-button danger" title="Talebi iptal et" onClick={() => onCancelRequest(request.id)}>
+                        <X size={16} />
+                      </button>
+                    )}
+                  </>
+                )}
+                {canForemanAnswerRequest(user, request) && (
                   <>
                     <input
                       value={answers[request.id] || ""}
@@ -2570,6 +2806,7 @@ function RequestsPanel({ user, requests, buildingsById, onApprove, onRevision, o
 
 function BuildingsPanel({
   buildings,
+  workItems,
   selectedBuildingId,
   onSelectBuilding,
   onOpenBuilding,
@@ -2590,6 +2827,7 @@ function BuildingsPanel({
     return `${building.code} ${building.name} ${building.lineColor}`.toLocaleLowerCase("tr-TR").includes(needle);
   });
   const selectedBuilding = buildings.find((building) => building.id === selectedBuildingId);
+  const selectedCategoryProgressItems = selectedBuilding ? getCategoryProgressItems(selectedBuilding, selectedBuilding.works) : [];
 
   return (
     <main className={`buildings-layout ${selectedBuilding ? "" : "list-only"}`}>
@@ -2682,6 +2920,17 @@ function BuildingsPanel({
               <strong>{selectedBuilding.works.reduce((sum, work) => sum + Number(work.quantity || 0), 0)}</strong>
             </div>
           </div>
+          <div className="category-progress-grid admin">
+            {selectedCategoryProgressItems.map((category) => (
+              <div key={category.key}>
+                <span>{category.label}</span>
+                <strong>{category.progress}%</strong>
+                <div className="mini-progress">
+                  <i style={{ width: `${category.progress}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
 
           <form
             className="add-work-form"
@@ -2691,6 +2940,11 @@ function BuildingsPanel({
                   setNewWork(initialNewWork);
                 }}
               >
+            <ReadyWorkSelect
+              workItems={workItems}
+              value={newWork.sourceWorkKey}
+              onChange={(workKey) => setNewWork((previous) => makeNewWorkFromReady(previous, workItems, workKey))}
+            />
             <input
               value={newWork.label}
               onChange={(event) => setNewWork((previous) => ({ ...previous, label: event.target.value }))}
@@ -2933,12 +3187,15 @@ function UsersPanel({
   onToggleWorkPermission,
   onBulkPermissions,
   onBulkWorkPermissions,
+  onAddGlobalWorkItem,
+  onDeleteGlobalWorkItem,
   onAddUser,
   onDeleteUser,
 }) {
   const [selectedUserId, setSelectedUserId] = useState(users.find((user) => user.role !== "admin")?.id || users[0]?.id);
   const [query, setQuery] = useState("");
   const [newUser, setNewUser] = useState(initialNewUser);
+  const [newWorkItem, setNewWorkItem] = useState(initialNewWork);
 
   const selectedUser = users.find((user) => user.id === selectedUserId) || users[0];
   const filteredBuildings = buildings.filter((building) => {
@@ -2954,6 +3211,13 @@ function UsersPanel({
     if (!newUser.name || !newUser.username || !newUser.password) return;
     onAddUser(newUser);
     setNewUser(initialNewUser);
+  }
+
+  function submitNewWorkItem(event) {
+    event.preventDefault();
+    if (!newWorkItem.label.trim()) return;
+    onAddGlobalWorkItem(newWorkItem);
+    setNewWorkItem(initialNewWork);
   }
 
   return (
@@ -3048,6 +3312,41 @@ function UsersPanel({
                 onChange={(event) => onUpdateUser(selectedUser.id, { password: event.target.value })}
               />
             </label>
+          </div>
+
+          <div className="ready-work-manager">
+            <div className="section-heading flat">
+              <div>
+                <span>Hazır iş kalemleri</span>
+                <strong>{visibleWorkItems.length} kalem</strong>
+              </div>
+            </div>
+            <form className="ready-work-form" onSubmit={submitNewWorkItem}>
+              <input
+                value={newWorkItem.label}
+                onChange={(event) => setNewWorkItem((previous) => ({ ...previous, label: event.target.value }))}
+                placeholder="Yeni hazır iş kalemi"
+              />
+              <WorkCategorySelect
+                value={newWorkItem.category}
+                onChange={(category) => setNewWorkItem((previous) => ({ ...previous, category }))}
+              />
+              <button className="secondary-action" type="submit">
+                <Plus size={16} />
+                Ekle
+              </button>
+            </form>
+            <div className="ready-work-list">
+              {visibleWorkItems.map((work) => (
+                <span key={work.key}>
+                  <b>{work.label}</b>
+                  <em>{workCategoryMeta[getWorkCategory(work)]?.label || getWorkCategory(work)}</em>
+                  <button className="icon-button danger" title="Hazır iş kalemini kaldır" onClick={() => onDeleteGlobalWorkItem(work.key)}>
+                    <X size={15} />
+                  </button>
+                </span>
+              ))}
+            </div>
           </div>
 
           {selectedUser.role !== "admin" && (
