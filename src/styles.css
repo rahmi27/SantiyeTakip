@@ -267,8 +267,9 @@ img {
   gap: 10px;
   padding: 10px;
   flex: 1 1 auto;
-  height: auto;
+  height: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar,
@@ -290,6 +291,12 @@ img {
 .summary-panel {
   min-height: 0;
   padding: 12px;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .section-heading,
@@ -345,8 +352,10 @@ img {
 
 .building-list {
   display: grid;
+  flex: 1 1 auto;
   gap: 8px;
-  max-height: calc(100vh - 184px);
+  min-height: 0;
+  max-height: none;
   overflow: auto;
   padding-right: 4px;
 }
@@ -356,7 +365,7 @@ img {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
-  min-height: 74px;
+  min-height: 82px;
   padding: 10px;
   text-align: left;
   color: var(--ink);
@@ -381,13 +390,15 @@ img {
 }
 
 .building-row-main span {
-  display: block;
+  display: -webkit-box;
   margin-top: 2px;
   overflow: hidden;
   color: var(--text-soft);
   font-size: 12px;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .row-meta {
@@ -990,15 +1001,22 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  padding: 12px 16px;
+  min-height: 82px;
+  padding: 13px 16px;
   background: var(--panel-strong);
   border-bottom: 1px solid var(--line);
   border-radius: 8px 8px 0 0;
 }
 
+.modal-header > div {
+  min-width: 0;
+}
+
 .modal-header h2 {
   margin-top: 2px;
-  font-size: 19px;
+  font-size: clamp(19px, 1.8vw, 24px);
+  line-height: 1.18;
+  overflow-wrap: anywhere;
 }
 
 .modal-grid {
@@ -1267,6 +1285,7 @@ img {
 .request-panel {
   display: grid;
   align-content: start;
+  grid-auto-rows: max-content;
   gap: 12px;
 }
 
@@ -1502,10 +1521,17 @@ img {
 
 .request-history {
   display: grid;
+  align-content: start;
   gap: 9px;
-  max-height: min(640px, 68vh);
-  overflow: auto;
+  min-height: min(360px, 44vh);
+  overflow: visible;
   padding-right: 3px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.request-panel .request-history {
+  margin-top: 2px;
 }
 
 .empty-state {
@@ -1532,6 +1558,11 @@ img {
 .file-panel {
   display: grid;
   gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  background: color-mix(in srgb, var(--panel-soft) 72%, var(--panel-strong));
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 
 .file-row {
@@ -1552,6 +1583,11 @@ img {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.empty-state.compact {
+  min-height: 54px;
+  padding: 10px;
 }
 
 .request-card-top {
@@ -1818,6 +1854,12 @@ img {
   padding: 14px;
 }
 
+.user-list-panel,
+.permission-panel {
+  max-height: calc(100dvh - 86px);
+  overflow: auto;
+}
+
 .building-admin-list-panel {
   overflow: hidden;
   max-height: calc(100dvh - 86px);
@@ -1875,11 +1917,14 @@ img {
 }
 
 .building-admin-row span {
+  display: -webkit-box;
   overflow: hidden;
   color: var(--text-soft);
   font-size: 12px;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .building-admin-row b {
@@ -2185,8 +2230,8 @@ img {
 
   .workspace {
     grid-template-columns: 280px minmax(0, 1fr);
-    height: auto;
-    min-height: calc(100vh - 140px);
+    height: 0;
+    min-height: 0;
   }
 
   .summary-panel {
@@ -2201,6 +2246,10 @@ img {
 }
 
 @media (max-width: 820px) {
+  .app-shell {
+    overflow: auto;
+  }
+
   .workspace,
   .users-layout,
   .buildings-layout {

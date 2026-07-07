@@ -2466,20 +2466,34 @@ function BuildingModal({
                     İstek gönder
                   </button>
                 </form>
-                <div className="file-panel">
+              </>
+            )}
+
+            {(user.role === "admin" || (building.files || []).length > 0) && (
+              <div className="file-panel">
+                <div className="section-heading flat">
+                  <div>
+                    <span>Bina dosyaları</span>
+                    <strong>{(building.files || []).length}</strong>
+                  </div>
+                </div>
+                {user.role === "admin" && (
                   <label className="photo-upload">
                     <Upload size={17} />
                     Bina dosyası yükle
                     <input type="file" onChange={handleBuildingFile} />
                   </label>
-                  {(building.files || []).map((file) => (
-                    <a className="file-row" key={file.id} href={file.data} download={file.name}>
-                      <FileText size={16} />
-                      <span>{file.name}</span>
-                    </a>
-                  ))}
-                </div>
-              </>
+                )}
+                {(building.files || []).length === 0 && user.role === "admin" && (
+                  <div className="empty-state compact">Bu bina için dosya yok.</div>
+                )}
+                {(building.files || []).map((file) => (
+                  <a className="file-row" key={file.id} href={file.data} download={file.name}>
+                    <FileText size={16} />
+                    <span>{file.name}</span>
+                  </a>
+                ))}
+              </div>
             )}
 
             {user.role !== "admin" && (
