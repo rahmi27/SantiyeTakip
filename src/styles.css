@@ -240,6 +240,12 @@ img {
   border-color: var(--accent);
 }
 
+.undo-action:not(:disabled) {
+  color: #fff;
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
 .topbar .icon-button {
   color: #fff;
   background: rgba(255, 255, 255, 0.12);

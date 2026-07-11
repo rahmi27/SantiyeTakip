@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Sun,
   Trash2,
+  Undo2,
   Upload,
   UserCog,
   X,
@@ -692,6 +693,8 @@ function App() {
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(1);
   const [theme, setTheme] = useState(() => readStorage(THEME_KEY) || "light");
+  const undoHistoryRef = useRef([]);
+  const [undoCount, setUndoCount] = useState(0);
 
   useEffect(() => {
     writeStorage(STORAGE_KEY, JSON.stringify(state));
@@ -743,8 +746,18 @@ function App() {
       const draft = JSON.parse(JSON.stringify(previous));
       updater(draft);
       draft.logs = (draft.logs || []).filter(isSessionLog);
+      undoHistoryRef.current = [...undoHistoryRef.current.slice(-19), previous];
+      setUndoCount(undoHistoryRef.current.length);
       return draft;
     });
+  }
+
+  function undoLastAdminAction() {
+    if (currentUser?.role !== "admin" || undoHistoryRef.current.length === 0) return;
+    const previous = undoHistoryRef.current[undoHistoryRef.current.length - 1];
+    undoHistoryRef.current = undoHistoryRef.current.slice(0, -1);
+    setUndoCount(undoHistoryRef.current.length);
+    setState(previous);
   }
 
   function login(userId) {
@@ -777,6 +790,8 @@ function App() {
 
   function resetDemoData() {
     const fresh = copySeed();
+    undoHistoryRef.current = [];
+    setUndoCount(0);
     setState(fresh);
     const user = fresh.users.find((item) => item.role === "admin");
     setCurrentUserId(user?.id || null);
@@ -1390,6 +1405,8 @@ function App() {
               onManualModeChange={setManualMode}
               onManualShapeChange={setManualShape}
               onManualRegionAdd={addManualRegion}
+              undoCount={undoCount}
+              onUndo={undoLastAdminAction}
               onSelect={(region) => {
                 if (!canAccess(currentUser, region.buildingId)) return;
                 setSelectedRegionId(region.id);
@@ -1665,6 +1682,8 @@ function MapPanel({
   onManualModeChange,
   onManualShapeChange,
   onManualRegionAdd,
+  undoCount = 0,
+  onUndo,
   onSelect,
 }) {
   const [draftPoints, setDraftPoints] = useState([]);
@@ -1927,13 +1946,23 @@ function MapPanel({
         </div>
         <div className="map-actions">
           {user.role === "admin" && (
-            <button
-              className={`secondary-action tool-toggle ${manualMode ? "active" : ""}`}
-              onClick={() => onManualModeChange(!manualMode)}
-            >
-              <Plus size={16} />
-              Bina çiz
-            </button>
+            <>
+              <button
+                className="icon-button undo-action"
+                title={undoCount > 0 ? `Son işlemi geri al (${Math.min(undoCount, 20)}/20)` : "Geri alınacak işlem yok"}
+                disabled={undoCount === 0}
+                onClick={onUndo}
+              >
+                <Undo2 size={17} />
+              </button>
+              <button
+                className={`secondary-action tool-toggle ${manualMode ? "active" : ""}`}
+                onClick={() => onManualModeChange(!manualMode)}
+              >
+                <Plus size={16} />
+                Bina çiz
+              </button>
+            </>
           )}
           {manualMode && (
             <>
