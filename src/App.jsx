@@ -30,12 +30,12 @@ import {
 import seedData from "./data/siteData.json";
 
 const APP_TITLE = "5. Zırhlı Tugayı Mekanik İşleri Proje Takibi";
-const STORAGE_KEY = "tugay-santiye-state-v12";
+const STORAGE_KEY = "tugay-santiye-state-v14";
 const SESSION_KEY = "tugay-santiye-current-user";
 const SESSION_START_KEY = "tugay-santiye-session-start";
 const THEME_KEY = "tugay-santiye-theme";
 
-const FOREMAN_HIDDEN_WORK_KEYS = ["grup_sayisi"];
+const FOREMAN_HIDDEN_WORK_KEYS = [];
 
 function readStorage(key) {
   try {
@@ -79,13 +79,20 @@ const initialNewUser = {
 
 const initialNewWork = {
   label: "",
-  quantity: "",
+  quantity: "100",
   weight: "",
-  category: "sihhi",
+  category: "sihhi_tesisat",
   sourceWorkKey: "",
 };
 
 const workCategoryMeta = {
+  sihhi_tesisat: { label: "Sıhhi Tesisat", order: 1 },
+  karot: { label: "Karot", order: 2 },
+  vrf: { label: "VRF", order: 3 },
+  pis_su_pompasi: { label: "Pis Su Pompası", order: 4 },
+  isitma_tesisati: { label: "Isıtma Tesisatı", order: 5 },
+  yangin_tesisati: { label: "Yangın Tesisatı", order: 6 },
+  ara_istasyon: { label: "Ara İstasyon", order: 7 },
   sihhi: { label: "Sıhhi", order: 1 },
   isitma: { label: "Isıtma", order: 2 },
   yangin: { label: "Yangın", order: 3 },
@@ -328,7 +335,13 @@ function normalizeState(raw) {
   draft.progressRanges = sanitizeProgressRanges(draft.progressRanges || defaultProgressRanges);
   draft.themeSettings = sanitizeThemeSettings(draft.themeSettings);
   draft.logs = (draft.logs || []).filter(isSessionLog);
-  draft.workItems = (draft.workItems || []).map((work) => ({ ...work, label: cleanText(work.label) }));
+  draft.workItems = (draft.workItems || []).map((work) => ({
+    ...work,
+    label: cleanText(work.label),
+    category: getSafeWorkCategory(work.category),
+    weight: clampPercent(work.weight),
+    unit: work.unit || "percent",
+  }));
   draft.buildings = (draft.buildings || []).map((building) => {
     const count = Math.max(1, building.works?.length || 1);
     const works = (building.works || []).map((work) => ({
@@ -337,6 +350,7 @@ function normalizeState(raw) {
       category: getWorkCategory(work),
       quantity: clampQuantity(work.quantity),
       weight: clampPercent(work.weight ?? Math.round(100 / count)),
+      unit: work.unit || "percent",
     }));
     return {
       ...building,
@@ -526,17 +540,19 @@ function isForemanHiddenWork(work) {
 }
 
 function getWorkCategory(work) {
-  return work?.category || workCategoryByKey[work?.key] || "sihhi";
+  return work?.category || workCategoryByKey[work?.key] || "sihhi_tesisat";
 }
 
 function getSafeWorkCategory(category) {
-  return workCategoryMeta[category] ? category : "sihhi";
+  return workCategoryMeta[category] ? category : "sihhi_tesisat";
 }
 
 function WorkCategorySelect({ value, onChange }) {
+  const legacyCategories = new Set(["sihhi", "isitma", "yangin"]);
   return (
     <select value={getSafeWorkCategory(value)} onChange={(event) => onChange(event.target.value)} aria-label="İş kategorisi">
       {Object.entries(workCategoryMeta)
+        .filter(([key]) => !legacyCategories.has(key))
         .sort((a, b) => a[1].order - b[1].order)
         .map(([key, meta]) => (
           <option key={key} value={key}>
@@ -788,7 +804,7 @@ function App() {
       if (!work) return;
       work.quantity = clampQuantity(value);
       building.updatedAt = new Date().toISOString();
-      draft.logs.unshift(makeLog(currentUser, "İş miktarı güncellendi", `${building.code} / ${work.label}: ${formatQuantity(work.quantity)}`));
+      draft.logs.unshift(makeLog(currentUser, "Talep limiti güncellendi", `${building.code} / ${work.label}: %${formatQuantity(work.quantity)}`));
     });
   }
 
@@ -799,7 +815,7 @@ function App() {
       if (!work) return;
       work.weight = clampPercent(value);
       building.updatedAt = new Date().toISOString();
-      draft.logs.unshift(makeLog(currentUser, "İş ağırlığı güncellendi", `${building.code} / ${work.label}: ${work.weight}%`));
+      draft.logs.unshift(makeLog(currentUser, "Hakediş payı güncellendi", `${building.code} / ${work.label}: %${work.weight}`));
     });
   }
 
@@ -834,11 +850,18 @@ function App() {
         quantity: clampQuantity(payload?.quantity),
         weight: clampPercent(payload?.weight),
         category: getSafeWorkCategory(payload?.category),
+        unit: "percent",
       });
       building.progress = building.progress || {};
       building.progress[key] = 0;
       building.updatedAt = new Date().toISOString();
-      draft.workItems.push({ key, label: cleanLabel, category: getSafeWorkCategory(payload?.category) });
+      draft.workItems.push({
+        key,
+        label: cleanLabel,
+        category: getSafeWorkCategory(payload?.category),
+        weight: clampPercent(payload?.weight),
+        unit: "percent",
+      });
       draft.logs.unshift(makeLog(currentUser, "Ek iş kalemi eklendi", `${building.code} / ${cleanLabel}`));
     });
   }
@@ -857,6 +880,8 @@ function App() {
         key,
         label: cleanLabel,
         category: getSafeWorkCategory(payload?.category),
+        weight: clampPercent(payload?.weight),
+        unit: "percent",
       });
       draft.users.forEach((user) => {
         if (user.role === "admin") user.workPermissions = [...(user.workPermissions || []), key];
@@ -2336,13 +2361,13 @@ function BuildingModal({
                         <strong>{work.label}</strong>
                       )}
                       <span>
-                        Toplam {formatQuantity(work.quantity)} · Kalan {formatQuantity(remaining)}
+                        Hakediş payı %{formatQuantity(work.weight ?? 0)} · İlerleme %{value} · Kalan %{formatQuantity(remaining)}
                       </span>
                     </div>
                     {user.role === "admin" ? (
                       <div className="admin-work-edit">
                         <label>
-                          Toplam
+                          Talep limiti %
                           <input
                             type="number"
                             min="0"
@@ -2351,7 +2376,7 @@ function BuildingModal({
                           />
                         </label>
                         <label>
-                          Ağırlık
+                          Hakediş payı %
                           <input
                             type="number"
                             min="0"
@@ -2415,7 +2440,7 @@ function BuildingModal({
                   min="0"
                   value={newWork.quantity}
                   onChange={(event) => setNewWork((previous) => ({ ...previous, quantity: event.target.value }))}
-                  placeholder="Toplam"
+                  placeholder="Limit %"
                 />
                 <input
                   type="number"
@@ -2423,7 +2448,7 @@ function BuildingModal({
                   max="100"
                   value={newWork.weight}
                   onChange={(event) => setNewWork((previous) => ({ ...previous, weight: event.target.value }))}
-                  placeholder="Ağırlık"
+                  placeholder="Pay %"
                 />
                 <WorkCategorySelect
                   value={newWork.category}
@@ -2521,7 +2546,7 @@ function BuildingModal({
                           <label key={work.key}>
                             <span>
                               <strong>{work.label}</strong>
-                              Kalan: {formatQuantity(remaining)}
+                              Kalan: %{formatQuantity(remaining)}
                             </span>
                             <input
                               type="number"
@@ -2529,7 +2554,7 @@ function BuildingModal({
                               max={remaining || undefined}
                               value={requestQuantities[work.key] || ""}
                               onChange={(event) => setRequestQuantity(work.key, event.target.value)}
-                              placeholder="Yapılan"
+                              placeholder="Yapılan %"
                             />
                           </label>
                         );
@@ -2570,7 +2595,7 @@ function BuildingModal({
                 const workLabels = items
                   .map((item) => {
                     const work = building.works.find((buildingWork) => buildingWork.key === item.workKey);
-                    return `${work?.label || item.workKey}: ${formatQuantity(item.quantity)}`;
+                    return `${work?.label || item.workKey}: %${formatQuantity(item.quantity)}`;
                   })
                   .join(", ") || "Süper admin isteği";
                 const draft = reviewDrafts[request.id] || {
@@ -2851,7 +2876,7 @@ function RequestsPanel({
           const itemText = items
             .map((item) => {
               const work = building?.works.find((buildingWork) => buildingWork.key === item.workKey);
-              return `${work?.label || item.workKey}: ${formatQuantity(item.quantity)}`;
+              return `${work?.label || item.workKey}: %${formatQuantity(item.quantity)}`;
             })
             .join(", ") || "Süper admin isteği";
           const draft = drafts[request.id] || {
@@ -3104,8 +3129,8 @@ function BuildingsPanel({
               <strong>{selectedBuilding.works.length}</strong>
             </div>
             <div>
-              <span>Toplam adet</span>
-              <strong>{selectedBuilding.works.reduce((sum, work) => sum + Number(work.quantity || 0), 0)}</strong>
+              <span>Hakediş grubu</span>
+              <strong>{selectedCategoryProgressItems.length}</strong>
             </div>
           </div>
           <div className="category-progress-grid admin">
@@ -3143,7 +3168,7 @@ function BuildingsPanel({
               min="0"
               value={newWork.quantity}
               onChange={(event) => setNewWork((previous) => ({ ...previous, quantity: event.target.value }))}
-              placeholder="Toplam"
+              placeholder="Limit %"
             />
             <input
               type="number"
@@ -3151,7 +3176,7 @@ function BuildingsPanel({
               max="100"
               value={newWork.weight}
               onChange={(event) => setNewWork((previous) => ({ ...previous, weight: event.target.value }))}
-              placeholder="Ağırlık"
+              placeholder="Pay %"
             />
             <WorkCategorySelect
               value={newWork.category}
@@ -3177,11 +3202,11 @@ function BuildingsPanel({
                       onChange={(event) => onUpdateWorkLabel(selectedBuilding.id, work.key, event.target.value)}
                     />
                     <span>
-                      Ağırlık {work.weight ?? 0}% · Toplam {formatQuantity(work.quantity)} · Kalan {formatQuantity(remaining)}
+                      Hakediş payı %{formatQuantity(work.weight ?? 0)} · İlerleme %{value} · Kalan %{formatQuantity(remaining)}
                     </span>
                   </div>
                   <label>
-                    Toplam
+                    Talep limiti %
                     <input
                       type="number"
                       min="0"
@@ -3190,7 +3215,7 @@ function BuildingsPanel({
                     />
                   </label>
                   <label>
-                    Ağırlık
+                    Hakediş payı %
                     <input
                       type="number"
                       min="0"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections import deque
 from pathlib import Path
 
@@ -10,7 +11,8 @@ from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_XLSX = ROOT / "source" / "teklif.xlsx"
+SOURCE_XLSX = ROOT / "source" / "hakedis.xlsx"
+FALLBACK_XLSX = ROOT / "source" / "teklif.xlsx"
 SOURCE_PDF = ROOT / "source" / "TBS-2.pdf"
 MAP_IMAGE = ROOT / "public" / "assets" / "site-map.png"
 COORDINATE_MAP_IMAGE = ROOT / "public" / "assets" / "site-map-coordinate.png"
@@ -62,6 +64,86 @@ def work_category(key: str) -> str:
     return WORK_CATEGORY_BY_KEY.get(key, "sihhi")
 
 
+GROUP_SOURCE_COLUMNS = {
+    "sihhi_tesisat": (6, 8),
+    "karot": (16,),
+    "vrf": (9,),
+    "pis_su_pompasi": (7,),
+    "isitma_tesisati": (10, 11),
+    "yangin_tesisati": (12, 13, 14),
+    "ara_istasyon": (15,),
+}
+
+
+def make_key(value: str) -> str:
+    value = str(value).translate(str.maketrans({"ı": "i", "İ": "i"}))
+    value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"[^a-zA-Z0-9]+", "_", value).strip("_").lower()
+    return value or "is_kalemi"
+
+
+def find_sheet(workbook, needle, fallback_index):
+    needle = make_key(needle)
+    for sheet in workbook.worksheets:
+        if needle in make_key(sheet.title):
+            return sheet
+    return workbook.worksheets[fallback_index]
+
+
+def read_hakedis_works(workbook):
+    sheet = find_sheet(workbook, "hakedis", 2)
+    works_by_group = {}
+    work_items_by_key = {}
+    current_group = ""
+    current_group_key = ""
+    order = 0
+
+    for row_index in range(1, sheet.max_row + 1):
+        group = sheet.cell(row_index, 2).value
+        name = sheet.cell(row_index, 3).value
+        percent = as_number(sheet.cell(row_index, 7).value)
+        if group:
+            current_group = str(group).strip()
+            current_group_key = make_key(current_group)
+        if not name or percent <= 0 or not current_group_key:
+            continue
+
+        label = str(name).strip()
+        if "toplam" in make_key(label):
+            continue
+        order += 1
+        key = f"{current_group_key}_{make_key(label)}"
+        work = {
+            "key": key,
+            "label": label,
+            "quantity": 100,
+            "weight": round(percent * 100, 2),
+            "category": current_group_key,
+            "hakedisPercent": round(percent * 100, 2),
+            "unit": "percent",
+            "order": order,
+        }
+        works_by_group.setdefault(current_group_key, []).append(work)
+        work_items_by_key[key] = {
+            "key": key,
+            "label": label,
+            "category": current_group_key,
+            "weight": work["weight"],
+            "unit": "percent",
+            "order": order,
+        }
+
+    return works_by_group, list(sorted(work_items_by_key.values(), key=lambda item: item["order"]))
+
+
+def building_active_group_keys(sheet, row_index):
+    active = []
+    for group_key, columns in GROUP_SOURCE_COLUMNS.items():
+        if any(as_number(sheet.cell(row_index, column).value) > 0 for column in columns):
+            active.append(group_key)
+    return active
+
+
 def building_code_terms(code: str) -> list[str]:
     code = code.strip()
     terms = []
@@ -74,26 +156,10 @@ def building_code_terms(code: str) -> list[str]:
 
 
 def read_buildings():
-    wb = openpyxl.load_workbook(SOURCE_XLSX, data_only=True, read_only=True)
-    ws = wb.worksheets[0]
-
-    header_rows = []
-    for row_index in (1, 2):
-        row = []
-        for column_index in range(1, ws.max_column + 1):
-            row.append(ws.cell(row_index, column_index).value)
-        header_rows.append(row)
-
-    work_columns = []
-    for column_index in range(6, min(ws.max_column, 26) + 1):
-        raw_name = header_rows[1][column_index - 1] or header_rows[0][column_index - 1]
-        if not raw_name:
-            continue
-        label = str(raw_name).replace("\n", " ").strip()
-        key = slugify(label)
-        work_columns.append((column_index, key, label))
-
-    work_items_by_key = {}
+    source_path = SOURCE_XLSX if SOURCE_XLSX.exists() else FALLBACK_XLSX
+    wb = openpyxl.load_workbook(source_path, data_only=True, read_only=True)
+    ws = find_sheet(wb, "binalar", 0)
+    works_by_group, work_items = read_hakedis_works(wb)
     buildings = []
 
     for row_index in range(3, ws.max_row + 1):
@@ -105,20 +171,10 @@ def read_buildings():
         code = str(code).strip()
         works = []
         progress = {}
-        for column_index, key, label in work_columns:
-            quantity = as_number(ws.cell(row_index, column_index).value)
-            if quantity <= 0:
-                continue
-            works.append({"key": key, "label": label, "quantity": quantity, "category": work_category(key)})
-            progress[key] = 0
-            work_items_by_key[key] = label
-
-        category_counts = {}
-        for work in works:
-            category_counts[work["category"]] = category_counts.get(work["category"], 0) + 1
-        for work in works:
-            category_weight = CATEGORY_WEIGHTS.get(work["category"], 0)
-            work["weight"] = round(category_weight / max(1, category_counts.get(work["category"], 1)))
+        for group_key in building_active_group_keys(ws, row_index):
+            for work in works_by_group.get(group_key, []):
+                works.append(dict(work))
+                progress[work["key"]] = 0
 
         buildings.append(
             {
@@ -132,10 +188,6 @@ def read_buildings():
             }
         )
 
-    work_items = [
-        {"key": key, "label": label, "category": work_category(key)}
-        for key, label in sorted(work_items_by_key.items())
-    ]
     return buildings, work_items
 
 
@@ -492,7 +544,7 @@ def make_users(buildings, work_items):
             "password": "formen123",
             "role": "foreman",
             "permissions": red_ids[:60],
-            "workPermissions": all_work_keys,
+            "workPermissions": [],
         },
         {
             "id": "u-formen-turkuaz",
@@ -501,7 +553,7 @@ def make_users(buildings, work_items):
             "password": "formen123",
             "role": "foreman",
             "permissions": turquoise_ids[:60],
-            "workPermissions": all_work_keys,
+            "workPermissions": [],
         },
         {
             "id": "u-formen-mor",
@@ -510,7 +562,7 @@ def make_users(buildings, work_items):
             "password": "formen123",
             "role": "foreman",
             "permissions": purple_ids[:60],
-            "workPermissions": all_work_keys,
+            "workPermissions": [],
         },
     ]
 
