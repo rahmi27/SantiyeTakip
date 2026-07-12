@@ -7,6 +7,14 @@ import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
 
 const MAX_RELATIVE_ZOOM = 24;
+const MIN_DRAW_SEGMENT_PX = 8;
+
+function styleDrawingVertices(markers) {
+  markers?.forEach((marker, index) => {
+    marker?._icon?.classList.add("site-draw-vertex");
+    marker?._icon?.classList.toggle("site-draw-first-vertex", index === 0);
+  });
+}
 
 function getDrawingBasis(map, markers) {
   if (!markers || markers.length < 2) return null;
@@ -62,7 +70,15 @@ function orthogonalizeCoordinates(coordinates) {
   const closureParallel = closureX * parallel.x + closureY * parallel.y;
   const closurePerpendicular = closureX * perpendicular.x + closureY * perpendicular.y;
   if (Math.abs(closureParallel) > 0.01 && Math.abs(closurePerpendicular) > 0.01) {
-    result.push([lastX + parallel.x * closureParallel, lastY + parallel.y * closureParallel]);
+    const [beforeLastX, beforeLastY] = result[result.length - 2];
+    const lastDx = lastX - beforeLastX;
+    const lastDy = lastY - beforeLastY;
+    const lastParallel = Math.abs(lastDx * parallel.x + lastDy * parallel.y);
+    const lastPerpendicular = Math.abs(lastDx * perpendicular.x + lastDy * perpendicular.y);
+    const closeParallelFirst = lastPerpendicular >= lastParallel;
+    const closureAxis = closeParallelFirst ? parallel : perpendicular;
+    const closureDistance = closeParallelFirst ? closureParallel : closurePerpendicular;
+    result.push([lastX + closureAxis.x * closureDistance, lastY + closureAxis.y * closureDistance]);
   }
   return result.map(([x, y]) => [Number(x.toFixed(2)), Number(y.toFixed(2))]);
 }
@@ -148,7 +164,15 @@ function HiddenDrawControl({ imageHeight, request, onCreated }) {
       if (!polygonHandler.__orthogonalPatched) {
         const originalAddVertex = polygonHandler.addVertex;
         polygonHandler.addVertex = function addOrthogonalVertex(latLng) {
-          return originalAddVertex.call(this, snapToDrawingBasis(this._map, this._markers, latLng));
+          const snappedLatLng = snapToDrawingBasis(this._map, this._markers, latLng);
+          const previousMarker = this._markers?.[this._markers.length - 1];
+          if (previousMarker) {
+            const previousPoint = this._map.latLngToLayerPoint(previousMarker.getLatLng());
+            const snappedPoint = this._map.latLngToLayerPoint(snappedLatLng);
+            if (previousPoint.distanceTo(snappedPoint) < MIN_DRAW_SEGMENT_PX) return;
+          }
+          originalAddVertex.call(this, snappedLatLng);
+          requestAnimationFrame(() => styleDrawingVertices(this._markers));
         };
         polygonHandler._onMouseMove = function moveOrthogonalGuide(event) {
           const rawPoint = this._map.mouseEventToLayerPoint(event.originalEvent);
