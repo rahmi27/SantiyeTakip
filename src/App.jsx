@@ -85,7 +85,7 @@ const initialNewWork = {
   sourceWorkKey: "",
 };
 
-const workCategoryMeta = {
+const defaultWorkCategoryMeta = {
   sihhi_tesisat: { label: "Sıhhi Tesisat", order: 1 },
   karot: { label: "Karot", order: 2 },
   vrf: { label: "VRF", order: 3 },
@@ -111,6 +111,28 @@ const workCategoryByKey = {
   yangin_dolabi: "yangin",
   i_b_a: "yangin",
 };
+
+function getWorkCategoryMeta(customCategories) {
+  return {
+    ...defaultWorkCategoryMeta,
+    ...(customCategories || {}),
+  };
+}
+
+function makeCategoryKey(value) {
+  const clean = String(value || "")
+    .trim()
+    .toLocaleLowerCase("tr-TR")
+    .replaceAll("ı", "i")
+    .replaceAll("ğ", "g")
+    .replaceAll("ü", "u")
+    .replaceAll("ş", "s")
+    .replaceAll("ö", "o")
+    .replaceAll("ç", "c")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return clean ? `custom_${clean}` : "";
+}
 
 const defaultThemeSettings = {
   light: {
@@ -353,11 +375,13 @@ function normalizeState(raw) {
   };
   draft.progressRanges = sanitizeProgressRanges(draft.progressRanges || defaultProgressRanges);
   draft.themeSettings = sanitizeThemeSettings(draft.themeSettings);
+  draft.workCategories = draft.workCategories || {};
+  const categoryMeta = getWorkCategoryMeta(draft.workCategories);
   draft.logs = (draft.logs || []).filter(isSessionLog);
   draft.workItems = (draft.workItems || []).map((work) => ({
     ...work,
     label: cleanText(work.label),
-    category: getSafeWorkCategory(work.category),
+    category: getSafeWorkCategory(work.category, categoryMeta),
     weight: clampPercent(work.weight),
     unit: work.unit || "percent",
   }));
@@ -366,7 +390,7 @@ function normalizeState(raw) {
     const works = (building.works || []).map((work) => ({
       ...work,
       label: cleanText(work.label),
-      category: getWorkCategory(work),
+      category: getSafeWorkCategory(getWorkCategory(work), categoryMeta),
       quantity: clampQuantity(work.quantity),
       weight: clampPercent(work.weight ?? Math.round(100 / count)),
       unit: work.unit || "percent",
@@ -562,15 +586,16 @@ function getWorkCategory(work) {
   return work?.category || workCategoryByKey[work?.key] || "sihhi_tesisat";
 }
 
-function getSafeWorkCategory(category) {
-  return workCategoryMeta[category] ? category : "sihhi_tesisat";
+function getSafeWorkCategory(category, categoryMeta = defaultWorkCategoryMeta) {
+  return categoryMeta[category] ? category : "sihhi_tesisat";
 }
 
-function WorkCategorySelect({ value, onChange }) {
+function WorkCategorySelect({ value, onChange, categoryMeta = defaultWorkCategoryMeta }) {
   const legacyCategories = new Set(["sihhi", "isitma", "yangin"]);
+  const selectedValue = getSafeWorkCategory(value, categoryMeta);
   return (
-    <select value={getSafeWorkCategory(value)} onChange={(event) => onChange(event.target.value)} aria-label="İş kategorisi">
-      {Object.entries(workCategoryMeta)
+    <select value={selectedValue} onChange={(event) => onChange(event.target.value)} aria-label="İş kategorisi">
+      {Object.entries(categoryMeta)
         .filter(([key]) => !legacyCategories.has(key))
         .sort((a, b) => a[1].order - b[1].order)
         .map(([key, meta]) => (
@@ -613,7 +638,7 @@ function makeNewWorkFromReady(previous, workItems, workKey) {
   };
 }
 
-function groupWorksByCategory(works) {
+function groupWorksByCategory(works, categoryMeta = defaultWorkCategoryMeta) {
   return Object.entries(
     works.reduce((groups, work) => {
       const category = getWorkCategory(work);
@@ -624,15 +649,15 @@ function groupWorksByCategory(works) {
   )
     .map(([key, items]) => ({
       key,
-      label: workCategoryMeta[key]?.label || key,
-      order: workCategoryMeta[key]?.order || 99,
+      label: categoryMeta[key]?.label || key,
+      order: categoryMeta[key]?.order || 99,
       items,
     }))
     .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, "tr"));
 }
 
-function getCategoryProgressItems(building, works) {
-  return groupWorksByCategory(works).map((category) => ({
+function getCategoryProgressItems(building, works, categoryMeta = defaultWorkCategoryMeta) {
+  return groupWorksByCategory(works, categoryMeta).map((category) => ({
     ...category,
     progress: getWorksProgress(building, category.items),
     weight: category.items.reduce((sum, work) => sum + Number(work.weight || 0), 0),
@@ -946,7 +971,7 @@ function App() {
         label: cleanLabel,
         quantity: clampQuantity(payload?.quantity),
         weight: clampPercent(payload?.weight),
-        category: getSafeWorkCategory(payload?.category),
+        category: getSafeWorkCategory(payload?.category, getWorkCategoryMeta(draft.workCategories)),
         unit: "percent",
       });
       building.progress = building.progress || {};
@@ -955,7 +980,7 @@ function App() {
       draft.workItems.push({
         key,
         label: cleanLabel,
-        category: getSafeWorkCategory(payload?.category),
+        category: getSafeWorkCategory(payload?.category, getWorkCategoryMeta(draft.workCategories)),
         weight: clampPercent(payload?.weight),
         unit: "percent",
       });
@@ -976,7 +1001,7 @@ function App() {
       draft.workItems.push({
         key,
         label: cleanLabel,
-        category: getSafeWorkCategory(payload?.category),
+        category: getSafeWorkCategory(payload?.category, getWorkCategoryMeta(draft.workCategories)),
         weight: clampPercent(payload?.weight),
         unit: "percent",
       });
@@ -984,6 +1009,25 @@ function App() {
         if (user.role === "admin") user.workPermissions = [...(user.workPermissions || []), key];
       });
       draft.logs.unshift(makeLog(currentUser, "Hazır iş kalemi eklendi", cleanLabel));
+    });
+  }
+
+  function addWorkCategory(label) {
+    const cleanLabel = String(label || "").trim();
+    const keyBase = makeCategoryKey(cleanLabel);
+    if (!cleanLabel || !keyBase) return;
+    updateState((draft) => {
+      draft.workCategories = draft.workCategories || {};
+      const categoryMeta = getWorkCategoryMeta(draft.workCategories);
+      let key = keyBase;
+      let counter = 2;
+      while (categoryMeta[key]) {
+        key = `${keyBase}_${counter}`;
+        counter += 1;
+      }
+      const maxOrder = Math.max(0, ...Object.values(categoryMeta).map((item) => Number(item.order || 0)));
+      draft.workCategories[key] = { label: cleanLabel, order: maxOrder + 1 };
+      draft.logs.unshift(makeLog(currentUser, "İş kategorisi eklendi", cleanLabel));
     });
   }
 
@@ -1598,6 +1642,7 @@ function App() {
         <BuildingsPanel
           buildings={state.buildings}
           workItems={state.workItems}
+          workCategories={state.workCategories}
           selectedBuildingId={buildingPanelSelectedId}
           onSelectBuilding={(buildingId) => {
             if (buildingPanelSelectedId === buildingId) {
@@ -1633,12 +1678,14 @@ function App() {
           users={state.users}
           buildings={state.buildings}
           workItems={state.workItems}
+          workCategories={state.workCategories}
           onUpdateUser={updateUser}
           onTogglePermission={toggleUserPermission}
           onToggleWorkPermission={toggleUserWorkPermission}
           onBulkPermissions={bulkSetPermissions}
           onBulkWorkPermissions={bulkSetWorkPermissions}
           onAddGlobalWorkItem={addGlobalWorkItem}
+          onAddWorkCategory={addWorkCategory}
           onDeleteGlobalWorkItem={deleteGlobalWorkItem}
           onAddUser={addUser}
           onDeleteUser={deleteUser}
@@ -1666,6 +1713,7 @@ function App() {
           regions={state.regions}
           buildings={state.buildings}
           workItems={state.workItems}
+          workCategories={state.workCategories}
           requests={state.requests.filter((request) => request.buildingId === openBuilding.id)}
           allRequests={state.requests}
           progressRanges={state.progressRanges}
@@ -2347,6 +2395,7 @@ function BuildingModal({
   regions,
   buildings,
   workItems,
+  workCategories,
   requests,
   allRequests,
   progressRanges,
@@ -2386,12 +2435,13 @@ function BuildingModal({
 
   const progress = getScopedBuildingProgress(user, building);
   const progressColor = getProgressColor(progress, progressRanges);
+  const categoryMeta = getWorkCategoryMeta(workCategories);
   const allowedWorkKeys = getUserWorkPermissions(user, building.works);
   const visibleWorks =
     user.role === "admin"
       ? building.works
       : building.works.filter((work) => allowedWorkKeys.includes(work.key) && !isForemanHiddenWork(work));
-  const categoryProgressItems = getCategoryProgressItems(building, visibleWorks);
+  const categoryProgressItems = getCategoryProgressItems(building, visibleWorks, categoryMeta);
   const requestableWorks = visibleWorks.filter(
     (work) =>
       allowedWorkKeys.includes(work.key) &&
@@ -2567,7 +2617,7 @@ function BuildingModal({
             </div>
 
             <div className="work-list">
-              {groupWorksByCategory(visibleWorks).map((category) => (
+              {groupWorksByCategory(visibleWorks, categoryMeta).map((category) => (
                 <details className="work-category" key={category.key}>
                   <summary>
                     <span>{category.label}</span>
@@ -2681,6 +2731,7 @@ function BuildingModal({
                   placeholder="Pay %"
                 />
                 <WorkCategorySelect
+                  categoryMeta={categoryMeta}
                   value={newWork.category}
                   onChange={(category) => setNewWork((previous) => ({ ...previous, category }))}
                 />
@@ -2763,7 +2814,7 @@ function BuildingModal({
                   <div className="empty-state">Bu binada işaretleyebileceğin iş kalemi yok.</div>
                 )}
                 <div className="work-quantity-grid">
-                  {groupWorksByCategory(requestableWorks).map((category) => (
+                  {groupWorksByCategory(requestableWorks, categoryMeta).map((category) => (
                     <details className="request-category" key={category.key}>
                       <summary>
                         <span>{category.label}</span>
@@ -3250,6 +3301,7 @@ function RequestsPanel({
 function BuildingsPanel({
   buildings,
   workItems,
+  workCategories,
   selectedBuildingId,
   onSelectBuilding,
   onOpenBuilding,
@@ -3270,8 +3322,9 @@ function BuildingsPanel({
     return `${building.code} ${building.name} ${building.lineColor}`.toLocaleLowerCase("tr-TR").includes(needle);
   });
   const selectedBuilding = buildings.find((building) => building.id === selectedBuildingId);
-  const selectedCategoryProgressItems = selectedBuilding ? getCategoryProgressItems(selectedBuilding, selectedBuilding.works) : [];
-  const selectedWorkGroups = selectedBuilding ? groupWorksByCategory(selectedBuilding.works) : [];
+  const categoryMeta = getWorkCategoryMeta(workCategories);
+  const selectedCategoryProgressItems = selectedBuilding ? getCategoryProgressItems(selectedBuilding, selectedBuilding.works, categoryMeta) : [];
+  const selectedWorkGroups = selectedBuilding ? groupWorksByCategory(selectedBuilding.works, categoryMeta) : [];
 
   return (
     <main className={`buildings-layout ${selectedBuilding ? "" : "list-only"}`}>
@@ -3410,6 +3463,7 @@ function BuildingsPanel({
               placeholder="Pay %"
             />
             <WorkCategorySelect
+              categoryMeta={categoryMeta}
               value={newWork.category}
               onChange={(category) => setNewWork((previous) => ({ ...previous, category }))}
             />
@@ -3635,12 +3689,14 @@ function UsersPanel({
   users,
   buildings,
   workItems,
+  workCategories,
   onUpdateUser,
   onTogglePermission,
   onToggleWorkPermission,
   onBulkPermissions,
   onBulkWorkPermissions,
   onAddGlobalWorkItem,
+  onAddWorkCategory,
   onDeleteGlobalWorkItem,
   onAddUser,
   onDeleteUser,
@@ -3649,6 +3705,7 @@ function UsersPanel({
   const [query, setQuery] = useState("");
   const [newUser, setNewUser] = useState(initialNewUser);
   const [newWorkItem, setNewWorkItem] = useState(initialNewWork);
+  const [newCategoryName, setNewCategoryName] = useState("");
 
   const selectedUser = users.find((user) => user.id === selectedUserId) || users[0];
   const filteredBuildings = buildings.filter((building) => {
@@ -3658,7 +3715,8 @@ function UsersPanel({
   });
   const selectedWorkPermissions = getUserWorkPermissions(selectedUser, workItems);
   const visibleWorkItems = workItems.filter((work) => !isForemanHiddenWork(work));
-  const visibleWorkGroups = groupWorksByCategory(visibleWorkItems);
+  const categoryMeta = getWorkCategoryMeta(workCategories);
+  const visibleWorkGroups = groupWorksByCategory(visibleWorkItems, categoryMeta);
 
   function submitNewUser(event) {
     event.preventDefault();
@@ -3672,6 +3730,13 @@ function UsersPanel({
     if (!newWorkItem.label.trim()) return;
     onAddGlobalWorkItem(newWorkItem);
     setNewWorkItem(initialNewWork);
+  }
+
+  function submitNewCategory(event) {
+    event.preventDefault();
+    if (!newCategoryName.trim()) return;
+    onAddWorkCategory(newCategoryName);
+    setNewCategoryName("");
   }
 
   return (
@@ -3782,12 +3847,24 @@ function UsersPanel({
                 placeholder="Yeni hazır iş kalemi"
               />
               <WorkCategorySelect
+                categoryMeta={categoryMeta}
                 value={newWorkItem.category}
                 onChange={(category) => setNewWorkItem((previous) => ({ ...previous, category }))}
               />
               <button className="secondary-action" type="submit">
                 <Plus size={16} />
                 Ekle
+              </button>
+            </form>
+            <form className="category-form" onSubmit={submitNewCategory}>
+              <input
+                value={newCategoryName}
+                onChange={(event) => setNewCategoryName(event.target.value)}
+                placeholder="Yeni kategori adı"
+              />
+              <button className="secondary-action" type="submit">
+                <Plus size={16} />
+                Kategori ekle
               </button>
             </form>
             <div className="ready-work-list">
@@ -3802,7 +3879,7 @@ function UsersPanel({
                     {category.items.map((work) => (
                 <span key={work.key}>
                   <b>{work.label}</b>
-                  <em>{workCategoryMeta[getWorkCategory(work)]?.label || getWorkCategory(work)}</em>
+                  <em>{categoryMeta[getWorkCategory(work)]?.label || getWorkCategory(work)}</em>
                   <button className="icon-button danger" title="Hazır iş kalemini kaldır" onClick={() => onDeleteGlobalWorkItem(work.key)}>
                     <X size={15} />
                   </button>

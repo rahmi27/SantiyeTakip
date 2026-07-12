@@ -2267,8 +2267,15 @@ img {
   gap: 8px;
 }
 
+.category-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 8px;
+}
+
 .ready-work-form input,
-.ready-work-form select {
+.ready-work-form select,
+.category-form input {
   min-height: 36px;
   padding: 0 8px;
   color: var(--ink);
@@ -2328,8 +2335,16 @@ img {
 }
 
 .permission-actions button {
+  color: var(--accent-strong);
+  font-weight: 700;
   background: var(--panel-strong);
   border: 1px solid var(--line);
+}
+
+.permission-actions button:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent-soft) 46%, var(--panel-strong));
+  border-color: var(--accent);
 }
 
 .permission-grid {
@@ -2457,6 +2472,10 @@ img {
   }
 
   .ready-work-form {
+    grid-template-columns: 1fr;
+  }
+
+  .category-form {
     grid-template-columns: 1fr;
   }
 
