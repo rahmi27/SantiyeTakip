@@ -2137,10 +2137,6 @@ function MapPanel({
   return (
     <section className="map-section">
       <div className="map-toolbar">
-        <div>
-          <strong>5. Zırhlı Tugayı Vaziyet Planı</strong>
-          <span>{regions.length} mor şekil</span>
-        </div>
         <div className="map-actions">
           {user.role === "admin" && (
             <>

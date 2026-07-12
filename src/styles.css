@@ -578,20 +578,10 @@ img {
 .map-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  justify-content: stretch;
+  gap: 0;
   padding: 10px 12px;
   border-bottom: 1px solid var(--line);
-}
-
-.map-toolbar strong {
-  display: block;
-  font-size: 14px;
-}
-
-.map-toolbar span {
-  color: var(--text-soft);
-  font-size: 12px;
 }
 
 .tool-toggle.active {
