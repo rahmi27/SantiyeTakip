@@ -16,18 +16,21 @@ import {
   MessageSquare,
   Moon,
   Plus,
-  Redo2,
   Search,
   Settings,
   ShieldCheck,
   Sun,
   Trash2,
-  Undo2,
   Upload,
   UserCog,
   X,
 } from "lucide-react";
 import seedData from "./data/siteData.json";
+
+const SiteMapPanel = React.lazy(() => import("./components/SiteMapPanel.jsx"));
+
+/** @typedef {[number, number]} MapCoordinate */
+/** @typedef {{ coordinates?: MapCoordinate[] }} BuildingMapData */
 
 const APP_TITLE = "5. Zırhlı Tugayı Mekanik İşleri Proje Takibi";
 const STORAGE_KEY = "tugay-santiye-state-v14";
@@ -176,8 +179,6 @@ const defaultProgressRanges = [
 ];
 
 const legacyProgressRangeColors = ["#d93636", "#e0b428", "#1f9d63"];
-const minMapZoom = 0.45;
-const maxMapZoom = 24;
 
 const textFixes = [
   ["Ä°", "İ"],
@@ -277,14 +278,6 @@ function sanitizeProgressRanges(ranges) {
   return cleaned.length ? cleaned : JSON.parse(JSON.stringify(defaultProgressRanges));
 }
 
-function colorWithAlpha(color, alpha) {
-  const safe = safeColor(color);
-  const r = parseInt(safe.slice(1, 3), 16);
-  const g = parseInt(safe.slice(3, 5), 16);
-  const b = parseInt(safe.slice(5, 7), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
 function makeThemeStyle(themeSettings, mode) {
   const palette = sanitizeThemeSettings(themeSettings)[mode] || defaultThemeSettings.light;
   return {
@@ -312,53 +305,20 @@ function getHistoryLabel(previous, draft) {
   return [latest.action, latest.detail].filter(Boolean).join(" · ");
 }
 
-function formatHistoryTime(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const minutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
-  const exact = date.toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-  if (minutes < 1) return `az önce · ${exact}`;
-  if (minutes < 60) return `${minutes} dk önce · ${exact}`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} sa önce · ${exact}`;
-  return exact;
-}
-
 function copySeed() {
   return normalizeState({ ...seedData, progressRanges: seedData.progressRanges || defaultProgressRanges });
 }
 
-function sanitizeRegion(region) {
-  const points = Array.isArray(region?.points)
-    ? region.points
-        .map((point) => ({
-          x: Math.min(1, Math.max(0, Number(point?.x))),
-          y: Math.min(1, Math.max(0, Number(point?.y))),
-        }))
-        .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
-    : [];
-  if (points.length >= 3) {
-    return {
-      ...region,
-      points,
-      shape: "polygon",
-    };
-  }
-
-  const x = Math.min(1, Math.max(0, Number(region?.x)));
-  const y = Math.min(1, Math.max(0, Number(region?.y)));
-  const width = Math.min(1 - x, Math.max(0.001, Number(region?.width)));
-  const height = Math.min(1 - y, Math.max(0.001, Number(region?.height)));
-  if (![x, y, width, height].every(Number.isFinite)) return null;
-  return {
-    ...region,
-    x,
-    y,
-    width,
-    height,
-    shape: "rect",
-    points: undefined,
-  };
+function sanitizeBuildingCoordinates(coordinates, map) {
+  if (!Array.isArray(coordinates)) return [];
+  const points = coordinates
+    .map((point) => [Number(point?.[0]), Number(point?.[1])])
+    .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
+    .map(([x, y]) => [
+      Number(Math.min(map.width, Math.max(0, x)).toFixed(2)),
+      Number(Math.min(map.height, Math.max(0, y)).toFixed(2)),
+    ]);
+  return points.length >= 3 ? points : [];
 }
 
 function sanitizeThemeSettings(settings) {
@@ -407,6 +367,7 @@ function normalizeState(raw) {
       ...building,
       name: cleanText(building.name),
       lineColor: cleanText(building.lineColor),
+      coordinates: sanitizeBuildingCoordinates(building.coordinates, draft.map),
       works,
       progress: building.progress || Object.fromEntries(works.map((work) => [work.key, 0])),
       files: building.files || [],
@@ -418,7 +379,7 @@ function normalizeState(raw) {
     workPermissions: user.role === "admin" ? draft.workItems.map((work) => work.key) : user.workPermissions || [],
   }));
   draft.requests = draft.requests || [];
-  draft.regions = (draft.regions || []).map(sanitizeRegion).filter(Boolean);
+  delete draft.regions;
   return draft;
 }
 
@@ -434,6 +395,7 @@ function mergeSeedBuildings(savedBuildings = []) {
         workKeys.map((key) => [key, clampPercent(saved.progress?.[key] ?? seedBuilding.progress?.[key] ?? 0)]),
       ),
       files: saved.files || [],
+      coordinates: sanitizeBuildingCoordinates(saved.coordinates, seedData.map),
     };
   });
 }
@@ -455,7 +417,6 @@ function loadInitialState() {
       ...parsed,
       buildings: mergeSeedBuildings(parsed.buildings || []),
       workItems: seedData.workItems,
-      regions: seedData.regions,
       users,
       requests: (parsed.requests || []).filter((request) => seedBuildingIds.has(request.buildingId)),
       progressRanges: parsed.progressRanges?.length ? parsed.progressRanges : seed.progressRanges,
@@ -469,12 +430,6 @@ function clampPercent(value) {
   const number = Number(value);
   if (Number.isNaN(number)) return 0;
   return Math.min(100, Math.max(0, Math.round(number)));
-}
-
-function clampMapZoom(value) {
-  const number = Number(value);
-  if (Number.isNaN(number)) return 1;
-  return Math.min(maxMapZoom, Math.max(minMapZoom, Number(number.toFixed(3))));
 }
 
 function getBuildingProgress(building) {
@@ -511,13 +466,6 @@ function getProgressColor(progress, ranges) {
 function canAccess(user, buildingId) {
   if (!user) return false;
   return user.role === "admin" || user.permissions.includes(buildingId);
-}
-
-function progressTone(value) {
-  if (value >= 75) return "good";
-  if (value >= 40) return "mid";
-  if (value > 0) return "low";
-  return "empty";
 }
 
 function statusTone(status) {
@@ -751,14 +699,10 @@ function App() {
   const [state, setState] = useState(loadInitialState);
   const [currentUserId, setCurrentUserId] = useState(() => readStorage(SESSION_KEY));
   const [activeTab, setActiveTab] = useState("map");
-  const [selectedRegionId, setSelectedRegionId] = useState(null);
   const [selectedBuildingId, setSelectedBuildingId] = useState(null);
   const [buildingPanelSelectedId, setBuildingPanelSelectedId] = useState(null);
   const [openBuildingId, setOpenBuildingId] = useState(null);
-  const [manualMode, setManualMode] = useState(false);
-  const [manualShape, setManualShape] = useState("polygon");
   const [query, setQuery] = useState("");
-  const [zoom, setZoom] = useState(1);
   const [theme, setTheme] = useState(() => readStorage(THEME_KEY) || "light");
   const undoHistoryRef = useRef([]);
   const redoHistoryRef = useRef([]);
@@ -791,13 +735,8 @@ function App() {
     return Object.fromEntries(state.buildings.map((building) => [building.id, building]));
   }, [state.buildings]);
 
-  const selectedRegion = state.regions.find((region) => region.id === selectedRegionId);
-  const selectedBuilding =
-    buildingsById[selectedBuildingId] || (selectedRegion ? buildingsById[selectedRegion.buildingId] : null);
+  const selectedBuilding = buildingsById[selectedBuildingId];
   const openBuilding = buildingsById[openBuildingId];
-  const openRegion =
-    state.regions.find((region) => region.id === selectedRegionId && region.buildingId === openBuildingId) ||
-    state.regions.find((region) => region.buildingId === openBuildingId);
 
   const accessibleBuildings = useMemo(() => {
     return state.buildings.filter((building) => canAccess(currentUser, building.id));
@@ -890,7 +829,6 @@ function App() {
     });
     removeStorage(SESSION_START_KEY);
     setCurrentUserId(null);
-    setSelectedRegionId(null);
     setSelectedBuildingId(null);
     setBuildingPanelSelectedId(null);
     setOpenBuildingId(null);
@@ -906,7 +844,6 @@ function App() {
     setState(fresh);
     const user = fresh.users.find((item) => item.role === "admin");
     setCurrentUserId(user?.id || null);
-    setSelectedRegionId(null);
     setSelectedBuildingId(null);
     setBuildingPanelSelectedId(null);
     setOpenBuildingId(null);
@@ -1115,14 +1052,12 @@ function App() {
       const building = draft.buildings.find((item) => item.id === buildingId);
       if (!building) return;
       draft.buildings = draft.buildings.filter((item) => item.id !== buildingId);
-      draft.regions = draft.regions.filter((region) => region.buildingId !== buildingId);
       draft.requests = draft.requests.filter((request) => request.buildingId !== buildingId);
       draft.users.forEach((user) => {
         user.permissions = (user.permissions || []).filter((id) => id !== buildingId);
       });
       draft.logs.unshift(makeLog(currentUser, "Bina silindi", `${building.code} / ${building.name}`));
     });
-    setSelectedRegionId(null);
     setSelectedBuildingId(null);
     setBuildingPanelSelectedId(null);
     setOpenBuildingId(null);
@@ -1257,79 +1192,30 @@ function App() {
     });
   }
 
-  function updateRegionBuilding(regionId, buildingId) {
+  function assignBuildingCoordinates(buildingId, coordinates) {
     updateState((draft) => {
-      const region = draft.regions.find((item) => item.id === regionId);
-      if (!region) return;
-      const previousBuilding = draft.buildings.find((item) => item.id === region.buildingId);
-      const nextBuilding = draft.buildings.find((item) => item.id === buildingId);
-      region.buildingId = buildingId;
+      const building = draft.buildings.find((item) => item.id === buildingId);
+      if (!building) return;
+      const sanitized = sanitizeBuildingCoordinates(coordinates, draft.map);
+      if (sanitized.length < 3) return;
+      building.coordinates = sanitized;
+      building.updatedAt = new Date().toISOString();
       draft.logs.unshift(
-        makeLog(currentUser, "Harita bina eşleşmesi değişti", `${region.id} · ${previousBuilding?.code || "-"} → ${nextBuilding?.code || buildingId}`),
+        makeLog(currentUser, "Harita bina eşleşmesi kaydedildi", `${building.code} · ${sanitized.length} köşe`),
       );
     });
     setSelectedBuildingId(buildingId);
   }
 
-  function updateRegionGeometry(regionId, points) {
+  function removeBuildingCoordinates(buildingId) {
+    if (!confirmAction("Bu binanın harita eşleşmesini kaldırmak istediğine emin misin?")) return;
     updateState((draft) => {
-      const region = draft.regions.find((item) => item.id === regionId);
-      if (!region) return;
-      region.points = points;
-      region.shape = "polygon";
-      delete region.x;
-      delete region.y;
-      delete region.width;
-      delete region.height;
-      draft.logs.unshift(makeLog(currentUser, "Harita poligonu güncellendi", region.id));
+      const building = draft.buildings.find((item) => item.id === buildingId);
+      if (!building?.coordinates?.length) return;
+      building.coordinates = [];
+      building.updatedAt = new Date().toISOString();
+      draft.logs.unshift(makeLog(currentUser, "Harita bina eşleşmesi kaldırıldı", building.code));
     });
-  }
-
-  function addManualRegion(region) {
-    const regionId = `MANUAL-MOR-${Date.now()}`;
-    let newBuildingId = "";
-    updateState((draft) => {
-      const manualCount = draft.buildings.filter((building) => String(building.id).startsWith("M")).length + 1;
-      const code = `M${String(manualCount).padStart(3, "0")}`;
-      newBuildingId = code;
-      draft.buildings.push({
-        id: code,
-        code,
-        name: "YENİ BİNA",
-        lineColor: "MOR",
-        quantity: 1,
-        source: "manual",
-        works: [],
-        progress: {},
-        files: [],
-      });
-      draft.regions.push({
-        id: regionId,
-        shape: region.points?.length ? "polygon" : "rect",
-        source: "manual",
-        buildingId: code,
-        ...region,
-      });
-      draft.users.forEach((user) => {
-        if (user.role === "admin") user.permissions = [...new Set([...(user.permissions || []), code])];
-      });
-      draft.logs.unshift(makeLog(currentUser, "Bina eklendi", code));
-    });
-    setSelectedRegionId(regionId);
-    setSelectedBuildingId(newBuildingId);
-    setOpenBuildingId(newBuildingId);
-    setManualMode(false);
-  }
-
-  function deleteRegion(regionId) {
-    if (!confirmAction("Bu harita alanını silmek istediğine emin misin?")) return;
-    updateState((draft) => {
-      const removedRegion = draft.regions.find((item) => item.id === regionId);
-      draft.regions = draft.regions.filter((region) => region.id !== regionId);
-      draft.logs.unshift(makeLog(currentUser, "Harita alanı silindi", removedRegion?.id || regionId));
-    });
-    setSelectedRegionId(null);
-    setOpenBuildingId(null);
   }
 
   function updateProgressRange(rangeId, patch) {
@@ -1602,39 +1488,33 @@ function App() {
               selectedBuildingId={selectedBuilding?.id}
               onSelect={(buildingId) => {
                 setSelectedBuildingId(buildingId);
-                const region = state.regions.find((item) => item.buildingId === buildingId);
-                setSelectedRegionId(region?.id || null);
                 setOpenBuildingId(buildingId);
               }}
             />
-            <MapPanel
-              map={state.map}
-              regions={state.regions}
-              buildingsById={buildingsById}
-              user={currentUser}
-              selectedRegionId={selectedRegionId}
-              zoom={zoom}
-              onZoom={setZoom}
-              progressRanges={state.progressRanges}
-              manualMode={manualMode}
-              manualShape={manualShape}
-              onManualModeChange={setManualMode}
-              onManualShapeChange={setManualShape}
-              onManualRegionAdd={addManualRegion}
-              undoItems={undoHistoryRef.current}
-              redoItems={redoHistoryRef.current}
-              undoCount={undoCount}
-              redoCount={redoCount}
-              historyStatus={historyStatus}
-              onUndo={undoAdminActions}
-              onRedo={redoAdminActions}
-              onSelect={(region) => {
-                if (!canAccess(currentUser, region.buildingId)) return;
-                setSelectedRegionId(region.id);
-                setSelectedBuildingId(region.buildingId);
-                setOpenBuildingId(region.buildingId);
-              }}
-            />
+            <React.Suspense fallback={<section className="map-section map-loading">Vaziyet planı yükleniyor…</section>}>
+              <SiteMapPanel
+                map={state.map}
+                buildings={state.buildings}
+                user={currentUser}
+                selectedBuildingId={selectedBuildingId}
+                progressRanges={state.progressRanges}
+                getProgress={(building) => getScopedBuildingProgress(currentUser, building)}
+                getProgressColor={(progress, ranges) => getProgressRange(progress, ranges)?.color || "#ef4444"}
+                onAssignCoordinates={assignBuildingCoordinates}
+                undoItems={undoHistoryRef.current}
+                redoItems={redoHistoryRef.current}
+                undoCount={undoCount}
+                redoCount={redoCount}
+                historyStatus={historyStatus}
+                onUndo={undoAdminActions}
+                onRedo={redoAdminActions}
+                onSelect={(buildingId) => {
+                  if (!canAccess(currentUser, buildingId)) return;
+                  setSelectedBuildingId(buildingId);
+                  setOpenBuildingId(buildingId);
+                }}
+              />
+            </React.Suspense>
           </main>
         </>
       )}
@@ -1651,8 +1531,6 @@ function App() {
           onCancelRequest={cancelRequest}
           onOpenBuilding={(buildingId) => {
             setSelectedBuildingId(buildingId);
-            const region = state.regions.find((item) => item.buildingId === buildingId);
-            setSelectedRegionId(region?.id || null);
             setOpenBuildingId(buildingId);
             setActiveTab("map");
           }}
@@ -1670,19 +1548,14 @@ function App() {
           onSelectBuilding={(buildingId) => {
             if (buildingPanelSelectedId === buildingId) {
               setBuildingPanelSelectedId(null);
-              setSelectedRegionId(null);
               return;
             }
             setBuildingPanelSelectedId(buildingId);
             setSelectedBuildingId(buildingId);
-            const region = state.regions.find((item) => item.buildingId === buildingId);
-            setSelectedRegionId(region?.id || null);
           }}
           onOpenBuilding={(buildingId) => {
             setBuildingPanelSelectedId(buildingId);
             setSelectedBuildingId(buildingId);
-            const region = state.regions.find((item) => item.buildingId === buildingId);
-            setSelectedRegionId(region?.id || null);
             setOpenBuildingId(buildingId);
           }}
           onSetWorkProgress={setWorkProgress}
@@ -1732,8 +1605,6 @@ function App() {
         <BuildingModal
           user={currentUser}
           building={openBuilding}
-          region={openRegion}
-          regions={state.regions}
           buildings={state.buildings}
           workItems={state.workItems}
           workCategories={state.workCategories}
@@ -1756,9 +1627,7 @@ function App() {
           onAnswerRevision={answerRevision}
           onUpdateRequest={updateRequest}
           onCancelRequest={cancelRequest}
-          onUpdateRegionBuilding={updateRegionBuilding}
-          onUpdateRegionGeometry={updateRegionGeometry}
-          onDeleteRegion={deleteRegion}
+          onRemoveCoordinates={removeBuildingCoordinates}
         />
       )}
     </div>
@@ -1895,475 +1764,6 @@ function BuildingSidebar({ buildings, user, progressRanges, totalCount, query, o
   );
 }
 
-function HistoryActionGroup({ type, icon, title, emptyTitle, items, disabled, isOpen, onToggle, onStep }) {
-  const isUndo = type === "undo";
-  const visibleItems = isUndo
-    ? items.map((item, index) => ({ item, count: items.length - index })).reverse()
-    : items.map((item, index) => ({ item, count: index + 1 }));
-
-  return (
-    <div className="history-action-group">
-      <button
-        className={`icon-button ${type}-action`}
-        title={disabled ? emptyTitle : title}
-        type="button"
-        disabled={disabled}
-        onClick={() => onStep(1)}
-      >
-        {icon}
-      </button>
-      <button
-        className="icon-button history-menu-trigger"
-        title={`${title} listesini aç`}
-        type="button"
-        disabled={disabled}
-        onClick={onToggle}
-      >
-        <ChevronDown size={14} />
-      </button>
-      {isOpen && (
-        <div className="history-menu">
-          <strong>{title}</strong>
-          {visibleItems.length === 0 ? (
-            <span className="history-empty">{emptyTitle}</span>
-          ) : (
-            visibleItems.map(({ item, count }) => (
-              <button key={item.id} type="button" title={`${item.label} · ${formatHistoryTime(item.at)}`} onClick={() => onStep(count)}>
-                <span>{item.label}</span>
-                <small>{formatHistoryTime(item.at)} · {count} adım</small>
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MapPanel({
-  map,
-  regions,
-  buildingsById,
-  user,
-  selectedRegionId,
-  zoom,
-  onZoom,
-  progressRanges,
-  manualMode,
-  manualShape,
-  onManualModeChange,
-  onManualShapeChange,
-  onManualRegionAdd,
-  undoItems = [],
-  redoItems = [],
-  undoCount = 0,
-  redoCount = 0,
-  historyStatus = "",
-  onUndo,
-  onRedo,
-  onSelect,
-}) {
-  const [draftPoints, setDraftPoints] = useState([]);
-  const [draftRect, setDraftRect] = useState(null);
-  const [isPanning, setIsPanning] = useState(false);
-  const [historyMenu, setHistoryMenu] = useState(null);
-  const viewportRef = useRef(null);
-  const zoomValueRef = useRef(zoom);
-  const panValueRef = useRef({ x: 0, y: 0 });
-  const panRef = useRef(null);
-  const [fitScale, setFitScale] = useState(0.25);
-  const [viewportSize, setViewportSize] = useState({ width: 1, height: 1 });
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-
-  useEffect(() => {
-    zoomValueRef.current = zoom;
-  }, [zoom]);
-
-  useEffect(() => {
-    panValueRef.current = pan;
-  }, [pan]);
-
-  useEffect(() => {
-    const element = viewportRef.current;
-    if (!element) return undefined;
-
-    function updateFitScale() {
-      const width = Math.max(1, element.clientWidth);
-      const height = Math.max(1, element.clientHeight);
-      const nextScale = Math.min(1, (width - 24) / map.width, (height - 24) / map.height);
-      setViewportSize({ width, height });
-      setFitScale(Number(Math.max(0.05, nextScale).toFixed(4)));
-    }
-
-    updateFitScale();
-    const observer = new ResizeObserver(updateFitScale);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [map.height, map.width]);
-
-  function clampMapPan(nextPan, nextZoom = zoomValueRef.current, nextFitScale = fitScale, size = viewportSize) {
-    const width = Math.max(1, size.width);
-    const height = Math.max(1, size.height);
-    const mapWidth = map.width * nextFitScale * nextZoom;
-    const mapHeight = map.height * nextFitScale * nextZoom;
-
-    const x =
-      mapWidth <= width
-        ? (width - mapWidth) / 2
-        : Math.min(0, Math.max(width - mapWidth, nextPan.x));
-    const y =
-      mapHeight <= height
-        ? (height - mapHeight) / 2
-        : Math.min(0, Math.max(height - mapHeight, nextPan.y));
-
-    return { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)) };
-  }
-
-  useEffect(() => {
-    setPan((previous) => clampMapPan(previous, zoom, fitScale, viewportSize));
-  }, [fitScale, map.height, map.width, viewportSize.height, viewportSize.width, zoom]);
-
-  function applyPan(nextPan, nextZoom = zoomValueRef.current) {
-    const clamped = clampMapPan(nextPan, nextZoom);
-    panValueRef.current = clamped;
-    setPan(clamped);
-  }
-
-  function zoomAtPoint(clientX, clientY, nextZoom) {
-    const element = viewportRef.current;
-    if (!element) return;
-    const rect = element.getBoundingClientRect();
-    const currentZoom = zoomValueRef.current;
-    const currentScale = fitScale * currentZoom;
-    const nextScale = fitScale * nextZoom;
-    const currentPan = panValueRef.current;
-    const pointX = clientX - rect.left;
-    const pointY = clientY - rect.top;
-    const mapPointX = (pointX - currentPan.x) / currentScale;
-    const mapPointY = (pointY - currentPan.y) / currentScale;
-    const nextPan = {
-      x: pointX - mapPointX * nextScale,
-      y: pointY - mapPointY * nextScale,
-    };
-
-    zoomValueRef.current = nextZoom;
-    onZoom(nextZoom);
-    applyPan(nextPan, nextZoom);
-  }
-
-  function handleMapWheel(event) {
-    const element = viewportRef.current;
-    if (!element) return;
-    event.preventDefault();
-    event.stopPropagation();
-
-    const delta = Math.min(500, Math.max(-500, event.deltaY));
-    const nextZoom = clampMapZoom(zoomValueRef.current * Math.exp(-delta * 0.0018));
-    if (nextZoom === zoomValueRef.current) return;
-
-    zoomAtPoint(event.clientX, event.clientY, nextZoom);
-  }
-
-  function startMapPan(event) {
-    const element = viewportRef.current;
-    if (!element || manualMode || (event.button !== 0 && event.button !== 1)) return;
-    if (event.button === 0 && event.target.closest?.(".hotspot-shape")) return;
-
-    event.preventDefault();
-    panRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      pan: panValueRef.current,
-    };
-    setIsPanning(true);
-    element.setPointerCapture?.(event.pointerId);
-  }
-
-  function moveMapPan(event) {
-    const activePan = panRef.current;
-    const element = viewportRef.current;
-    if (!activePan || !element || event.pointerId !== activePan.pointerId) return;
-
-    event.preventDefault();
-    applyPan({
-      x: activePan.pan.x + event.clientX - activePan.startX,
-      y: activePan.pan.y + event.clientY - activePan.startY,
-    });
-  }
-
-  function stopMapPan(event) {
-    const pan = panRef.current;
-    const element = viewportRef.current;
-    if (!pan || event.pointerId !== pan.pointerId) return;
-
-    panRef.current = null;
-    setIsPanning(false);
-    element?.releasePointerCapture?.(event.pointerId);
-  }
-
-  function getSvgPoint(event) {
-    const box = event.currentTarget.getBoundingClientRect();
-    return {
-      x: Math.min(map.width, Math.max(0, ((event.clientX - box.left) / box.width) * map.width)),
-      y: Math.min(map.height, Math.max(0, ((event.clientY - box.top) / box.height) * map.height)),
-    };
-  }
-
-  function addManualPoint(event) {
-    if (user.role !== "admin" || !manualMode || manualShape !== "polygon") return;
-    const point = getSvgPoint(event);
-    setDraftPoints((previous) => [...previous, point]);
-  }
-
-  function startManualRect(event) {
-    if (user.role !== "admin" || !manualMode || manualShape !== "rect") return;
-    const point = getSvgPoint(event);
-    setDraftRect({ startX: point.x, startY: point.y, endX: point.x, endY: point.y });
-  }
-
-  function moveManualRect(event) {
-    if (!draftRect || user.role !== "admin" || !manualMode || manualShape !== "rect") return;
-    const point = getSvgPoint(event);
-    setDraftRect((previous) => ({ ...previous, endX: point.x, endY: point.y }));
-  }
-
-  function finishManualRect(event) {
-    if (!draftRect || user.role !== "admin" || !manualMode || manualShape !== "rect") return;
-    const point = getSvgPoint(event);
-    const x0 = Math.min(draftRect.startX, point.x);
-    const y0 = Math.min(draftRect.startY, point.y);
-    const x1 = Math.max(draftRect.startX, point.x);
-    const y1 = Math.max(draftRect.startY, point.y);
-    setDraftRect(null);
-    if (x1 - x0 < 8 || y1 - y0 < 8) return;
-    onManualRegionAdd({
-      x: Number((x0 / map.width).toFixed(5)),
-      y: Number((y0 / map.height).toFixed(5)),
-      width: Number(((x1 - x0) / map.width).toFixed(5)),
-      height: Number(((y1 - y0) / map.height).toFixed(5)),
-      pixelBox: [Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1)],
-    });
-  }
-
-  function finishManualPolygon() {
-    if (draftPoints.length < 3) return;
-    onManualRegionAdd({
-      points: draftPoints.map((point) => ({
-        x: Number((point.x / map.width).toFixed(5)),
-        y: Number((point.y / map.height).toFixed(5)),
-      })),
-    });
-    setDraftPoints([]);
-  }
-
-  function clearManualDraft() {
-    setDraftPoints([]);
-    setDraftRect(null);
-  }
-
-  function getRegionGeometry(region) {
-    if (region.points?.length) {
-      return {
-        type: "polygon",
-        points: region.points.map((point) => `${point.x * map.width},${point.y * map.height}`).join(" "),
-      };
-    }
-    return {
-      type: "rect",
-      x: region.x * map.width,
-      y: region.y * map.height,
-      width: region.width * map.width,
-      height: region.height * map.height,
-    };
-  }
-
-  function getRegionCenter(region) {
-    if (region.points?.length) {
-      const total = region.points.reduce(
-        (sum, point) => ({ x: sum.x + point.x * map.width, y: sum.y + point.y * map.height }),
-        { x: 0, y: 0 },
-      );
-      return { x: total.x / region.points.length, y: total.y / region.points.length };
-    }
-    return {
-      x: (region.x + region.width / 2) * map.width,
-      y: (region.y + region.height / 2) * map.height,
-    };
-  }
-
-  const draftBox = draftRect
-    ? {
-        x: Math.min(draftRect.startX, draftRect.endX),
-        y: Math.min(draftRect.startY, draftRect.endY),
-        width: Math.abs(draftRect.endX - draftRect.startX),
-        height: Math.abs(draftRect.endY - draftRect.startY),
-      }
-    : null;
-  const baseWidth = map.width;
-  const baseHeight = map.height;
-  const totalScale = fitScale * zoom;
-  const mapTransform = `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${totalScale})`;
-
-  return (
-    <section className="map-section">
-      <div className="map-toolbar">
-        <div className="map-actions">
-          {user.role === "admin" && (
-            <>
-              <div className="history-status" title={historyStatus}>
-                <strong>{historyStatus}</strong>
-              </div>
-              <HistoryActionGroup
-                type="undo"
-                icon={<Undo2 size={17} />}
-                title={`Geri al (${Math.min(undoCount, 20)}/20)`}
-                emptyTitle="Geri alınacak işlem yok"
-                items={undoItems}
-                disabled={undoCount === 0}
-                isOpen={historyMenu === "undo"}
-                onToggle={() => setHistoryMenu(historyMenu === "undo" ? null : "undo")}
-                onStep={(count) => {
-                  onUndo(count);
-                  setHistoryMenu(null);
-                }}
-              />
-              <HistoryActionGroup
-                type="redo"
-                icon={<Redo2 size={17} />}
-                title={`İleri al (${Math.min(redoCount, 20)}/20)`}
-                emptyTitle="İleri alınacak işlem yok"
-                items={redoItems}
-                disabled={redoCount === 0}
-                isOpen={historyMenu === "redo"}
-                onToggle={() => setHistoryMenu(historyMenu === "redo" ? null : "redo")}
-                onStep={(count) => {
-                  onRedo(count);
-                  setHistoryMenu(null);
-                }}
-              />
-              <button
-                className={`secondary-action tool-toggle ${manualMode ? "active" : ""}`}
-                onClick={() => onManualModeChange(!manualMode)}
-              >
-                <Plus size={16} />
-                Bina çiz
-              </button>
-            </>
-          )}
-          {manualMode && (
-            <>
-              <div className="segmented compact">
-                <button className={manualShape === "rect" ? "active" : ""} onClick={() => onManualShapeChange("rect")}>
-                  Dikdörtgen
-                </button>
-                <button className={manualShape === "polygon" ? "active" : ""} onClick={() => onManualShapeChange("polygon")}>
-                  Poligon
-                </button>
-              </div>
-              {manualShape === "polygon" && (
-              <button className="secondary-action" disabled={draftPoints.length < 3} onClick={finishManualPolygon}>
-                <Check size={16} />
-                Bitir
-              </button>
-              )}
-              <button className="icon-button" title="Çizimi temizle" onClick={clearManualDraft}>
-                <X size={16} />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div
-        className={`map-scroll ${isPanning ? "panning" : ""}`}
-        ref={viewportRef}
-        onWheel={handleMapWheel}
-        onPointerDown={startMapPan}
-        onPointerMove={moveMapPan}
-        onPointerUp={stopMapPan}
-        onPointerCancel={stopMapPan}
-        onAuxClick={(event) => event.preventDefault()}
-      >
-        <div className="map-scroll-inner">
-          <div
-            className={`map-canvas ${manualMode ? "manual" : ""}`}
-            style={{
-              width: `${baseWidth}px`,
-              height: `${baseHeight}px`,
-              transform: mapTransform,
-            }}
-          >
-            <img src={map.image} alt="TBS-2 PDF haritası" />
-            <svg
-              viewBox={`0 0 ${map.width} ${map.height}`}
-              preserveAspectRatio="none"
-              onClick={addManualPoint}
-              onPointerDown={startManualRect}
-              onPointerMove={moveManualRect}
-              onPointerUp={finishManualRect}
-            >
-              {regions.map((region) => {
-                const building = buildingsById[region.buildingId];
-                const allowed = canAccess(user, region.buildingId);
-                const progress = getScopedBuildingProgress(user, building);
-                const tone = progressTone(progress);
-                const progressRange = getProgressRange(progress, progressRanges);
-                const geometry = getRegionGeometry(region);
-                const center = getRegionCenter(region);
-                const shapeProps = {
-                  className: `hotspot-shape ${selectedRegionId === region.id ? "selected" : ""}`,
-                  style: {
-                    fill: allowed ? colorWithAlpha(progressRange?.color, 0.45) : "rgba(86, 98, 116, 0.08)",
-                    stroke: allowed ? "#6d747c" : "rgba(86, 98, 116, 0.18)",
-                  },
-                  onClick: (event) => {
-                    event.stopPropagation();
-                    onSelect(region);
-                  },
-                };
-                return (
-                  <g key={region.id} className={`hotspot ${allowed ? "allowed" : "locked"} ${tone}`}>
-                    {geometry.type === "polygon" ? (
-                      <polygon points={geometry.points} {...shapeProps} />
-                    ) : (
-                      <rect x={geometry.x} y={geometry.y} width={geometry.width} height={geometry.height} rx="2" {...shapeProps} />
-                    )}
-                    {allowed && zoom >= 2.2 && building && (
-                      <text className="building-map-label" x={center.x} y={center.y}>
-                        {building.code}
-                      </text>
-                    )}
-                    <title>{`${region.id} · ${building?.code || "Bina seçilmedi"} · ${progress}%`}</title>
-                  </g>
-                );
-              })}
-              {draftPoints.length > 0 && (
-                <>
-                  <polyline className="manual-draft-line" points={draftPoints.map((point) => `${point.x},${point.y}`).join(" ")} />
-                  {draftPoints.map((point, index) => (
-                    <circle className="manual-draft-point" key={`${point.x}-${point.y}-${index}`} cx={point.x} cy={point.y} r="7" />
-                  ))}
-                </>
-              )}
-              {draftBox && (
-                <rect
-                  className="manual-draft-rect"
-                  x={draftBox.x}
-                  y={draftBox.y}
-                  width={draftBox.width}
-                  height={draftBox.height}
-                  rx="2"
-                />
-              )}
-            </svg>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function SummaryPanel({
   user,
   buildings,
@@ -2414,8 +1814,6 @@ function SummaryPanel({
 function BuildingModal({
   user,
   building,
-  region,
-  regions,
   buildings,
   workItems,
   workCategories,
@@ -2438,9 +1836,7 @@ function BuildingModal({
   onAnswerRevision,
   onUpdateRequest,
   onCancelRequest,
-  onUpdateRegionBuilding,
-  onUpdateRegionGeometry,
-  onDeleteRegion,
+  onRemoveCoordinates,
 }) {
   const [requestQuantities, setRequestQuantities] = useState({});
   const [note, setNote] = useState("");
@@ -2582,7 +1978,7 @@ function BuildingModal({
       <section className={`building-modal ${user.role !== "admin" ? "foreman-modal" : ""}`}>
         <header className="modal-header">
           <div>
-            <span>{region?.id || "Bina kaydı"}</span>
+            <span>{building.coordinates?.length ? "Haritayla eşleştirildi" : "Harita eşleşmesi bekliyor"}</span>
             <h2>
               {building.code} · {building.name}
             </h2>
@@ -2767,11 +2163,11 @@ function BuildingModal({
           </section>
 
           <section className="request-panel">
-            {user.role === "admin" && region?.source === "manual" && (
+            {user.role === "admin" && building.coordinates?.length >= 3 && (
               <div className="admin-box">
-                <button className="secondary-action" onClick={() => onDeleteRegion(region.id)}>
+                <button className="secondary-action" onClick={() => onRemoveCoordinates(building.id)}>
                   <X size={16} />
-                  Harita alanını sil
+                  Harita eşleşmesini kaldır
                 </button>
               </div>
             )}
