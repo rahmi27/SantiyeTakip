@@ -2,11 +2,37 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { FeatureGroup, ImageOverlay, MapContainer, Polygon, Tooltip, useMap } from "react-leaflet";
 import { EditControl } from "react-leaflet-draw";
-import { Building2, Plus, Redo2, Undo2, X } from "lucide-react";
+import { Building2, Pentagon, RectangleHorizontal, Redo2, Square, Undo2, X } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
 
 const MAX_RELATIVE_ZOOM = 24;
+
+function snapToRightAngle(map, previousLatLng, rawLatLng) {
+  if (!previousLatLng) return rawLatLng;
+  const previous = map.latLngToLayerPoint(previousLatLng);
+  const current = map.latLngToLayerPoint(rawLatLng);
+  const snapped =
+    Math.abs(current.x - previous.x) >= Math.abs(current.y - previous.y)
+      ? L.point(current.x, previous.y)
+      : L.point(previous.x, current.y);
+  return map.layerPointToLatLng(snapped);
+}
+
+function orthogonalizeCoordinates(coordinates) {
+  if (coordinates.length < 3) return coordinates;
+  const result = [coordinates[0]];
+
+  coordinates.slice(1).forEach(([x, y]) => {
+    const [previousX, previousY] = result[result.length - 1];
+    result.push(Math.abs(x - previousX) >= Math.abs(y - previousY) ? [x, previousY] : [previousX, y]);
+  });
+
+  const [firstX, firstY] = result[0];
+  const [lastX, lastY] = result[result.length - 1];
+  if (firstX !== lastX && firstY !== lastY) result.push([firstX, lastY]);
+  return result;
+}
 
 function FitImageBounds({ bounds }) {
   const map = useMap();
@@ -48,21 +74,66 @@ function FocusBuilding({ building, imageHeight }) {
   return null;
 }
 
-function HiddenDrawControl({ imageHeight, requestId, onCreated }) {
+function HiddenDrawControl({ imageHeight, request, onCreated }) {
   const map = useMap();
   const controlRef = useRef(null);
 
   useEffect(() => {
-    if (!requestId) return;
+    if (!request?.id) return;
     const polygonHandler = controlRef.current?._toolbars?.draw?._modes?.polygon?.handler;
-    if (polygonHandler) {
+    const rectangleHandler = controlRef.current?._toolbars?.draw?._modes?.rectangle?.handler;
+    polygonHandler?.disable();
+    rectangleHandler?.disable();
+
+    if (request.mode === "polygon" && polygonHandler) {
+      if (!polygonHandler.__orthogonalPatched) {
+        const originalAddVertex = polygonHandler.addVertex;
+        polygonHandler.addVertex = function addOrthogonalVertex(latLng) {
+          const previousLatLng = this._markers?.[this._markers.length - 1]?.getLatLng();
+          return originalAddVertex.call(this, snapToRightAngle(this._map, previousLatLng, latLng));
+        };
+        polygonHandler._onMouseMove = function moveOrthogonalGuide(event) {
+          const rawPoint = this._map.mouseEventToLayerPoint(event.originalEvent);
+          const rawLatLng = this._map.layerPointToLatLng(rawPoint);
+          const previousLatLng = this._markers?.[this._markers.length - 1]?.getLatLng();
+          const latLng = snapToRightAngle(this._map, previousLatLng, rawLatLng);
+          const snappedPoint = this._map.latLngToLayerPoint(latLng);
+          this._currentLatLng = latLng;
+          this._updateTooltip(latLng);
+          this._updateGuide(snappedPoint);
+          this._mouseMarker.setLatLng(rawLatLng);
+          L.DomEvent.preventDefault(event.originalEvent);
+        };
+        polygonHandler.__orthogonalPatched = true;
+      }
       polygonHandler.enable();
       return;
     }
 
-    const fallbackButton = map.getContainer().querySelector(".leaflet-draw-draw-polygon");
+    if ((request.mode === "rectangle" || request.mode === "square") && rectangleHandler) {
+      const originalDrawShape = L.Draw.Rectangle.prototype._drawShape;
+      rectangleHandler._drawShape =
+        request.mode === "square"
+          ? function drawSquare(latLng) {
+              const start = this._map.latLngToLayerPoint(this._startLatLng);
+              const current = this._map.latLngToLayerPoint(latLng);
+              const size = Math.max(Math.abs(current.x - start.x), Math.abs(current.y - start.y));
+              const squarePoint = L.point(
+                start.x + (current.x < start.x ? -size : size),
+                start.y + (current.y < start.y ? -size : size),
+              );
+              originalDrawShape.call(this, this._map.layerPointToLatLng(squarePoint));
+            }
+          : originalDrawShape;
+      rectangleHandler.enable();
+      return;
+    }
+
+    const fallbackButton = map.getContainer().querySelector(
+      request.mode === "polygon" ? ".leaflet-draw-draw-polygon" : ".leaflet-draw-draw-rectangle",
+    );
     fallbackButton?.click();
-  }, [map, requestId]);
+  }, [map, request]);
 
   return (
     <FeatureGroup>
@@ -73,10 +144,9 @@ function HiddenDrawControl({ imageHeight, requestId, onCreated }) {
         position="topright"
         onCreated={(event) => {
           const latLngs = event.layer.getLatLngs()?.[0] || [];
-          const coordinates = latLngs.map(({ lat, lng }) => [
-            Number(lng.toFixed(2)),
-            Number((imageHeight - lat).toFixed(2)),
-          ]);
+          const coordinates = orthogonalizeCoordinates(
+            latLngs.map(({ lat, lng }) => [Number(lng.toFixed(2)), Number((imageHeight - lat).toFixed(2))]),
+          );
           event.layer.remove();
           onCreated(coordinates);
         }}
@@ -87,7 +157,10 @@ function HiddenDrawControl({ imageHeight, requestId, onCreated }) {
             shapeOptions: { color: "#2563eb", fillColor: "#3b82f6", fillOpacity: 0.28, weight: 3 },
           },
           polyline: false,
-          rectangle: false,
+          rectangle: {
+            showArea: false,
+            shapeOptions: { color: "#2563eb", fillColor: "#3b82f6", fillOpacity: 0.28, weight: 3 },
+          },
           circle: false,
           circlemarker: false,
           marker: false,
@@ -149,7 +222,7 @@ export default function SiteMapPanel({
   onUndo,
   onRedo,
 }) {
-  const [drawRequestId, setDrawRequestId] = useState(0);
+  const [drawRequest, setDrawRequest] = useState({ id: 0, mode: "polygon" });
   const [pendingCoordinates, setPendingCoordinates] = useState(null);
   const [targetBuildingId, setTargetBuildingId] = useState("");
   const [historyMenu, setHistoryMenu] = useState(null);
@@ -160,10 +233,10 @@ export default function SiteMapPanel({
   );
   const selectedBuilding = buildings.find((building) => building.id === selectedBuildingId);
 
-  function beginDrawing() {
+  function beginDrawing(mode) {
     if (!unmappedBuildings.length) return;
     setHistoryMenu(null);
-    setDrawRequestId((value) => value + 1);
+    setDrawRequest((previous) => ({ id: previous.id + 1, mode }));
   }
 
   function handlePolygonCreated(coordinates) {
@@ -210,16 +283,38 @@ export default function SiteMapPanel({
                 setHistoryMenu(null);
               }}
             />
-            <button
-              className="secondary-action draw-building-action"
-              type="button"
-              disabled={!unmappedBuildings.length}
-              title={unmappedBuildings.length ? `${unmappedBuildings.length} bina eşleştirme bekliyor` : "Tüm binalar eşleştirildi"}
-              onClick={beginDrawing}
-            >
-              <Plus size={16} />
-              Bina çiz
-            </button>
+            <div className="draw-mode-group" aria-label="Bina çizim araçları">
+              <button
+                className="secondary-action draw-building-action"
+                type="button"
+                disabled={!unmappedBuildings.length}
+                title="Yatay ve dikey kenarlı poligon çiz"
+                onClick={() => beginDrawing("polygon")}
+              >
+                <Pentagon size={16} />
+                90° Poligon
+              </button>
+              <button
+                className="secondary-action draw-building-action"
+                type="button"
+                disabled={!unmappedBuildings.length}
+                title="Hazır dikdörtgen çiz"
+                onClick={() => beginDrawing("rectangle")}
+              >
+                <RectangleHorizontal size={16} />
+                Dikdörtgen
+              </button>
+              <button
+                className="secondary-action draw-building-action"
+                type="button"
+                disabled={!unmappedBuildings.length}
+                title="Hazır kare çiz"
+                onClick={() => beginDrawing("square")}
+              >
+                <Square size={16} />
+                Kare
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -276,7 +371,7 @@ export default function SiteMapPanel({
           })}
 
           {user.role === "admin" && (
-            <HiddenDrawControl imageHeight={map.height} requestId={drawRequestId} onCreated={handlePolygonCreated} />
+            <HiddenDrawControl imageHeight={map.height} request={drawRequest} onCreated={handlePolygonCreated} />
           )}
         </MapContainer>
 

@@ -651,6 +651,15 @@ img {
 
 .draw-building-action {
   flex: 0 0 auto;
+  padding-inline: 10px;
+  white-space: nowrap;
+}
+
+.draw-mode-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
 }
 
 .leaflet-history-action {
@@ -1100,7 +1109,7 @@ img {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 10000;
   display: grid;
   place-items: center;
   padding: 20px;
@@ -1108,6 +1117,8 @@ img {
 }
 
 .building-modal {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   width: min(1120px, 100%);
