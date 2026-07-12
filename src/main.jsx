@@ -3,6 +3,10 @@ import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import "./styles.css";
 
+const RootApplication = window.location.pathname.startsWith("/deneme-dashboard")
+  ? React.lazy(() => import("./deneme-dashboard/DenemeDashboard.jsx"))
+  : App;
+
 class RootErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -54,7 +58,9 @@ class RootErrorBoundary extends React.Component {
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <RootErrorBoundary>
-      <App />
+      <React.Suspense fallback={<main className="crash-screen" aria-label="Deneme ortamı yükleniyor" />}>
+        <RootApplication />
+      </React.Suspense>
     </RootErrorBoundary>
   </React.StrictMode>,
 );
