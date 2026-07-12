@@ -1284,7 +1284,8 @@ img {
   font-size: 12px;
 }
 
-.building-info-editor input {
+.building-info-editor input,
+.building-info-editor select {
   width: 100%;
   min-height: 36px;
   padding: 0 8px;

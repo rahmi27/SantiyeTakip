@@ -85,6 +85,15 @@ const initialNewWork = {
   sourceWorkKey: "",
 };
 
+const buildingLineOptions = [
+  { value: "KIRMIZI", label: "Kırmızı Hat" },
+  { value: "TURKUAZ", label: "Turkuaz Hat" },
+  { value: "MAVİ", label: "Mavi Hat" },
+  { value: "MOR", label: "Mor Hat" },
+  { value: "MAGENTA", label: "Magenta Hat" },
+  { value: "MANUEL", label: "Manuel" },
+];
+
 const defaultWorkCategoryMeta = {
   sihhi_tesisat: { label: "Sıhhi Tesisat", order: 1 },
   karot: { label: "Karot", order: 2 },
@@ -620,6 +629,24 @@ function ReadyWorkSelect({ workItems, value, onChange }) {
       {readyItems.map((work) => (
         <option key={work.key} value={work.key}>
           {work.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function LineSelect({ value, onChange }) {
+  const normalizedValue = value || "MANUEL";
+  const hasCurrentValue = buildingLineOptions.some((option) => option.value === normalizedValue);
+  const options = hasCurrentValue
+    ? buildingLineOptions
+    : [{ value: normalizedValue, label: normalizedValue }, ...buildingLineOptions];
+
+  return (
+    <select value={normalizedValue} onChange={(event) => onChange(event.target.value)} aria-label="Hat seçimi">
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
         </option>
       ))}
     </select>
@@ -2584,9 +2611,9 @@ function BuildingModal({
                 </label>
                 <label>
                   Hat
-                  <input
+                  <LineSelect
                     value={building.lineColor}
-                    onChange={(event) => onUpdateBuilding(building.id, { lineColor: event.target.value })}
+                    onChange={(lineColor) => onUpdateBuilding(building.id, { lineColor })}
                   />
                 </label>
                 <button className="icon-button danger" title="Binayı sil" onClick={() => onDeleteBuilding(building.id)}>
@@ -3396,9 +3423,9 @@ function BuildingsPanel({
             </label>
             <label>
               Hat
-              <input
+              <LineSelect
                 value={selectedBuilding.lineColor}
-                onChange={(event) => onUpdateBuilding(selectedBuilding.id, { lineColor: event.target.value })}
+                onChange={(lineColor) => onUpdateBuilding(selectedBuilding.id, { lineColor })}
               />
             </label>
           </div>
