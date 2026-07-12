@@ -91,7 +91,6 @@ const buildingLineOptions = [
   { value: "MAVİ", label: "Mavi Hat" },
   { value: "MOR", label: "Mor Hat" },
   { value: "MAGENTA", label: "Magenta Hat" },
-  { value: "MANUEL", label: "Manuel" },
 ];
 
 const defaultWorkCategoryMeta = {
@@ -636,11 +635,8 @@ function ReadyWorkSelect({ workItems, value, onChange }) {
 }
 
 function LineSelect({ value, onChange }) {
-  const normalizedValue = value || "MANUEL";
-  const hasCurrentValue = buildingLineOptions.some((option) => option.value === normalizedValue);
-  const options = hasCurrentValue
-    ? buildingLineOptions
-    : [{ value: normalizedValue, label: normalizedValue }, ...buildingLineOptions];
+  const normalizedValue = buildingLineOptions.some((option) => option.value === value) ? value : buildingLineOptions[0].value;
+  const options = buildingLineOptions;
 
   return (
     <select value={normalizedValue} onChange={(event) => onChange(event.target.value)} aria-label="Hat seçimi">
@@ -1299,8 +1295,8 @@ function App() {
       draft.buildings.push({
         id: code,
         code,
-        name: "YENİ MANUEL BİNA",
-        lineColor: "MANUEL",
+        name: "YENİ BİNA",
+        lineColor: "MOR",
         quantity: 1,
         source: "manual",
         works: [],
@@ -1317,7 +1313,7 @@ function App() {
       draft.users.forEach((user) => {
         if (user.role === "admin") user.permissions = [...new Set([...(user.permissions || []), code])];
       });
-      draft.logs.unshift(makeLog(currentUser, "Manuel bina eklendi", code));
+      draft.logs.unshift(makeLog(currentUser, "Bina eklendi", code));
     });
     setSelectedRegionId(regionId);
     setSelectedBuildingId(newBuildingId);
