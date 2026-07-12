@@ -284,6 +284,18 @@ function getHistoryLabel(previous, draft) {
   return [latest.action, latest.detail].filter(Boolean).join(" · ");
 }
 
+function formatHistoryTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const minutes = Math.max(0, Math.round((Date.now() - date.getTime()) / 60000));
+  const exact = date.toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  if (minutes < 1) return `az önce · ${exact}`;
+  if (minutes < 60) return `${minutes} dk önce · ${exact}`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} sa önce · ${exact}`;
+  return exact;
+}
+
 function copySeed() {
   return normalizeState({ ...seedData, progressRanges: seedData.progressRanges || defaultProgressRanges });
 }
@@ -695,6 +707,7 @@ function App() {
   const [activeTab, setActiveTab] = useState("map");
   const [selectedRegionId, setSelectedRegionId] = useState(null);
   const [selectedBuildingId, setSelectedBuildingId] = useState(null);
+  const [buildingPanelSelectedId, setBuildingPanelSelectedId] = useState(null);
   const [openBuildingId, setOpenBuildingId] = useState(null);
   const [manualMode, setManualMode] = useState(false);
   const [manualShape, setManualShape] = useState("polygon");
@@ -772,7 +785,7 @@ function App() {
         redoHistoryRef.current = [];
         setUndoCount(undoHistoryRef.current.length);
         setRedoCount(0);
-        setHistoryStatus(`Son değişiklik: ${historyLabel}`);
+        setHistoryStatus(historyLabel);
       }
       return draft;
     });
@@ -833,6 +846,7 @@ function App() {
     setCurrentUserId(null);
     setSelectedRegionId(null);
     setSelectedBuildingId(null);
+    setBuildingPanelSelectedId(null);
     setOpenBuildingId(null);
   }
 
@@ -848,6 +862,7 @@ function App() {
     setCurrentUserId(user?.id || null);
     setSelectedRegionId(null);
     setSelectedBuildingId(null);
+    setBuildingPanelSelectedId(null);
     setOpenBuildingId(null);
     setActiveTab("map");
   }
@@ -856,10 +871,21 @@ function App() {
     updateState((draft) => {
       const building = draft.buildings.find((item) => item.id === buildingId);
       if (!building) return;
+      const work = building.works.find((item) => item.key === workKey);
+      const previousWorkProgress = clampPercent(building.progress?.[workKey] || 0);
+      const previousBuildingProgress = getBuildingProgress(building);
+      const nextWorkProgress = clampPercent(value);
       building.progress = building.progress || {};
-      building.progress[workKey] = clampPercent(value);
+      building.progress[workKey] = nextWorkProgress;
       building.updatedAt = new Date().toISOString();
-      draft.logs.unshift(makeLog(currentUser, "İş yüzdesi güncellendi", `${building.code} / ${workKey}: ${building.progress[workKey]}%`));
+      const nextBuildingProgress = getBuildingProgress(building);
+      draft.logs.unshift(
+        makeLog(
+          currentUser,
+          "Bina iş yüzdesi değişti",
+          `${building.code} · ${work?.label || workKey}: iş %${previousWorkProgress} → %${nextWorkProgress}, bina genel %${previousBuildingProgress} → %${nextBuildingProgress}`,
+        ),
+      );
     });
   }
 
@@ -868,9 +894,13 @@ function App() {
       const building = draft.buildings.find((item) => item.id === buildingId);
       const work = building?.works.find((item) => item.key === workKey);
       if (!work) return;
-      work.quantity = clampQuantity(value);
+      const previousQuantity = clampQuantity(work.quantity);
+      const nextQuantity = clampQuantity(value);
+      work.quantity = nextQuantity;
       building.updatedAt = new Date().toISOString();
-      draft.logs.unshift(makeLog(currentUser, "Talep limiti güncellendi", `${building.code} / ${work.label}: %${formatQuantity(work.quantity)}`));
+      draft.logs.unshift(
+        makeLog(currentUser, "Talep limiti değişti", `${building.code} · ${work.label}: %${formatQuantity(previousQuantity)} → %${formatQuantity(nextQuantity)}`),
+      );
     });
   }
 
@@ -879,9 +909,11 @@ function App() {
       const building = draft.buildings.find((item) => item.id === buildingId);
       const work = building?.works.find((item) => item.key === workKey);
       if (!work) return;
-      work.weight = clampPercent(value);
+      const previousWeight = clampPercent(work.weight);
+      const nextWeight = clampPercent(value);
+      work.weight = nextWeight;
       building.updatedAt = new Date().toISOString();
-      draft.logs.unshift(makeLog(currentUser, "Hakediş payı güncellendi", `${building.code} / ${work.label}: %${work.weight}`));
+      draft.logs.unshift(makeLog(currentUser, "Hakediş payı değişti", `${building.code} · ${work.label}: %${previousWeight} → %${nextWeight}`));
     });
   }
 
@@ -890,11 +922,12 @@ function App() {
       const building = draft.buildings.find((item) => item.id === buildingId);
       const work = building?.works.find((item) => item.key === workKey);
       if (!work) return;
+      const previousLabel = work.label;
       work.label = label;
       building.updatedAt = new Date().toISOString();
       const globalWork = draft.workItems.find((item) => item.key === workKey);
       if (globalWork) globalWork.label = label;
-      draft.logs.unshift(makeLog(currentUser, "İş kalemi adı güncellendi", `${building.code} / ${label}`));
+      draft.logs.unshift(makeLog(currentUser, "İş kalemi adı değişti", `${building.code} · ${previousLabel} → ${label}`));
     });
   }
 
@@ -996,9 +1029,18 @@ function App() {
     updateState((draft) => {
       const building = draft.buildings.find((item) => item.id === buildingId);
       if (!building) return;
+      const before = {
+        code: building.code,
+        name: building.name,
+        lineColor: building.lineColor,
+      };
       Object.assign(building, patch);
       if (patch.code) building.id = buildingId;
-      draft.logs.unshift(makeLog(currentUser, "Bina bilgisi güncellendi", `${building.code} / ${building.name}`));
+      const changes = Object.entries(patch)
+        .filter(([key]) => before[key] !== undefined && before[key] !== building[key])
+        .map(([key]) => `${key}: ${before[key]} → ${building[key]}`)
+        .join(", ");
+      draft.logs.unshift(makeLog(currentUser, "Bina bilgisi değişti", `${building.code} · ${changes || building.name}`));
     });
   }
 
@@ -1017,6 +1059,7 @@ function App() {
     });
     setSelectedRegionId(null);
     setSelectedBuildingId(null);
+    setBuildingPanelSelectedId(null);
     setOpenBuildingId(null);
   }
 
@@ -1051,6 +1094,7 @@ function App() {
       if (!request) return;
       const building = draft.buildings.find((item) => item.id === request.buildingId);
       if (!building) return;
+      const previousBuildingProgress = getBuildingProgress(building);
       request.status = "approved";
       const requestedItems = getRequestItems(request);
       request.items = requestedItems.map((item) => {
@@ -1075,7 +1119,16 @@ function App() {
         building.progress[item.workKey] = clampPercent(Number(building.progress[item.workKey] || 0) + addPercent);
       });
       building.updatedAt = new Date().toISOString();
-      draft.logs.unshift(makeLog(currentUser, "Talep onaylandı", `${building.code} / ${request.id}`));
+      const nextBuildingProgress = getBuildingProgress(building);
+      const itemText = request.items
+        .map((item) => {
+          const work = building.works.find((buildingWork) => buildingWork.key === item.workKey);
+          return `${work?.label || item.workKey} +%${formatQuantity(item.approvedQuantity || 0)}`;
+        })
+        .join(", ");
+      draft.logs.unshift(
+        makeLog(currentUser, "Talep onaylandı", `${building.code} · ${itemText || request.id}; bina genel %${previousBuildingProgress} → %${nextBuildingProgress}`),
+      );
     });
   }
 
@@ -1142,7 +1195,13 @@ function App() {
   function updateRegionBuilding(regionId, buildingId) {
     updateState((draft) => {
       const region = draft.regions.find((item) => item.id === regionId);
-      if (region) region.buildingId = buildingId;
+      if (!region) return;
+      const previousBuilding = draft.buildings.find((item) => item.id === region.buildingId);
+      const nextBuilding = draft.buildings.find((item) => item.id === buildingId);
+      region.buildingId = buildingId;
+      draft.logs.unshift(
+        makeLog(currentUser, "Harita bina eşleşmesi değişti", `${region.id} · ${previousBuilding?.code || "-"} → ${nextBuilding?.code || buildingId}`),
+      );
     });
     setSelectedBuildingId(buildingId);
   }
@@ -1200,7 +1259,9 @@ function App() {
   function deleteRegion(regionId) {
     if (!confirmAction("Bu harita alanını silmek istediğine emin misin?")) return;
     updateState((draft) => {
+      const removedRegion = draft.regions.find((item) => item.id === regionId);
       draft.regions = draft.regions.filter((region) => region.id !== regionId);
+      draft.logs.unshift(makeLog(currentUser, "Harita alanı silindi", removedRegion?.id || regionId));
     });
     setSelectedRegionId(null);
     setOpenBuildingId(null);
@@ -1218,6 +1279,7 @@ function App() {
       if (range.min > range.max) [range.min, range.max] = [range.max, range.min];
       range.label = `${range.min}-${range.max}`;
       draft.progressRanges = sanitizeProgressRanges(draft.progressRanges);
+      draft.logs.unshift(makeLog(currentUser, "Harita renk dilimi değişti", `${range.label} · ${range.color}`));
     });
   }
 
@@ -1231,15 +1293,18 @@ function App() {
         color: "#2b6cb0",
         label: "0-100",
       });
+      draft.logs.unshift(makeLog(currentUser, "Harita renk dilimi eklendi", "0-100 · #2b6cb0"));
     });
   }
 
   function deleteProgressRange(rangeId) {
     if (!confirmAction("Bu renk dilimini silmek istediğine emin misin?")) return;
     updateState((draft) => {
+      const removedRange = sanitizeProgressRanges(draft.progressRanges).find((range) => range.id === rangeId);
       draft.progressRanges = sanitizeProgressRanges(draft.progressRanges).filter((range) => range.id !== rangeId);
       if (draft.progressRanges.length === 0) draft.progressRanges = JSON.parse(JSON.stringify(defaultProgressRanges));
       draft.progressRanges = sanitizeProgressRanges(draft.progressRanges);
+      draft.logs.unshift(makeLog(currentUser, "Harita renk dilimi silindi", removedRange ? `${removedRange.label} · ${removedRange.color}` : rangeId));
     });
   }
 
@@ -1254,13 +1319,16 @@ function App() {
     updateState((draft) => {
       draft.themeSettings = sanitizeThemeSettings(draft.themeSettings);
       if (!draft.themeSettings[mode] || !(key in draft.themeSettings[mode])) return;
+      const previousColor = draft.themeSettings[mode][key];
       draft.themeSettings[mode][key] = safeColor(value, defaultThemeSettings[mode][key]);
+      draft.logs.unshift(makeLog(currentUser, "Tema rengi değişti", `${mode} · ${key}: ${previousColor} → ${draft.themeSettings[mode][key]}`));
     });
   }
 
   function resetThemeSettings() {
     updateState((draft) => {
       draft.themeSettings = sanitizeThemeSettings(defaultThemeSettings);
+      draft.logs.unshift(makeLog(currentUser, "Tema renkleri sıfırlandı", "Açık mod ve dark mode varsayılanları"));
     });
   }
 
@@ -1268,10 +1336,16 @@ function App() {
     updateState((draft) => {
       const user = draft.users.find((item) => item.id === userId);
       if (!user) return;
+      const previous = { name: user.name, username: user.username, role: user.role };
       Object.assign(user, patch);
       if (user.role === "admin") {
         user.permissions = draft.buildings.map((building) => building.id);
       }
+      const changes = Object.entries(patch)
+        .filter(([key]) => previous[key] !== undefined && previous[key] !== user[key])
+        .map(([key]) => `${key}: ${previous[key]} → ${user[key]}`)
+        .join(", ");
+      draft.logs.unshift(makeLog(currentUser, "Kullanıcı bilgisi değişti", `${user.username} · ${changes || "bilgi güncellendi"}`));
     });
   }
 
@@ -1280,9 +1354,13 @@ function App() {
       const user = draft.users.find((item) => item.id === userId);
       if (!user || user.role === "admin") return;
       const hasPermission = user.permissions.includes(buildingId);
+      const building = draft.buildings.find((item) => item.id === buildingId);
       user.permissions = hasPermission
         ? user.permissions.filter((id) => id !== buildingId)
         : [...user.permissions, buildingId];
+      draft.logs.unshift(
+        makeLog(currentUser, "Bina izni değişti", `${user.username} · ${hasPermission ? "kaldırıldı" : "eklendi"}: ${building?.code || buildingId}`),
+      );
     });
   }
 
@@ -1293,9 +1371,13 @@ function App() {
       const assignableWorkKeys = draft.workItems.filter((work) => !isForemanHiddenWork(work)).map((work) => work.key);
       user.workPermissions = user.workPermissions || assignableWorkKeys;
       const hasPermission = user.workPermissions.includes(workKey);
+      const work = draft.workItems.find((item) => item.key === workKey);
       user.workPermissions = hasPermission
         ? user.workPermissions.filter((key) => key !== workKey)
         : [...user.workPermissions, workKey];
+      draft.logs.unshift(
+        makeLog(currentUser, "İş kalemi izni değişti", `${user.username} · ${hasPermission ? "kaldırıldı" : "eklendi"}: ${work?.label || workKey}`),
+      );
     });
   }
 
@@ -1303,7 +1385,22 @@ function App() {
     updateState((draft) => {
       const user = draft.users.find((item) => item.id === userId);
       if (!user || user.role === "admin") return;
-      user.workPermissions = mode === "all" ? draft.workItems.filter((work) => !isForemanHiddenWork(work)).map((work) => work.key) : [];
+      const assignable = draft.workItems.filter((work) => !isForemanHiddenWork(work)).map((work) => work.key);
+      if (mode === "all") {
+        user.workPermissions = assignable;
+        draft.logs.unshift(makeLog(currentUser, "İş izinleri değişti", `${user.username} · tüm işler seçildi (${assignable.length})`));
+      } else if (mode === "clear") {
+        user.workPermissions = [];
+        draft.logs.unshift(makeLog(currentUser, "İş izinleri değişti", `${user.username} · tüm işler temizlendi`));
+      } else if (mode?.type === "add") {
+        const keys = mode.keys || [];
+        user.workPermissions = Array.from(new Set([...(user.workPermissions || []), ...keys]));
+        draft.logs.unshift(makeLog(currentUser, "İş izinleri değişti", `${user.username} · kategori seçildi (${keys.length})`));
+      } else if (mode?.type === "remove") {
+        const keySet = new Set(mode.keys || []);
+        user.workPermissions = (user.workPermissions || []).filter((key) => !keySet.has(key));
+        draft.logs.unshift(makeLog(currentUser, "İş izinleri değişti", `${user.username} · kategori temizlendi (${keySet.size})`));
+      }
     });
   }
 
@@ -1313,12 +1410,15 @@ function App() {
       if (!user || user.role === "admin") return;
       if (mode === "all") {
         user.permissions = draft.buildings.map((building) => building.id);
+        draft.logs.unshift(makeLog(currentUser, "Bina izinleri değişti", `${user.username} · tüm binalar seçildi (${user.permissions.length})`));
       } else if (mode === "clear") {
         user.permissions = [];
+        draft.logs.unshift(makeLog(currentUser, "Bina izinleri değişti", `${user.username} · tüm binalar temizlendi`));
       } else {
         user.permissions = draft.buildings
           .filter((building) => mode.includes(building.lineColor.toLocaleUpperCase("tr-TR")))
           .map((building) => building.id);
+        draft.logs.unshift(makeLog(currentUser, "Bina izinleri değişti", `${user.username} · ${mode.join(", ")} seçildi (${user.permissions.length})`));
       }
     });
   }
@@ -1500,18 +1600,20 @@ function App() {
         <BuildingsPanel
           buildings={state.buildings}
           workItems={state.workItems}
-          selectedBuildingId={selectedBuilding?.id}
+          selectedBuildingId={buildingPanelSelectedId}
           onSelectBuilding={(buildingId) => {
-            if (selectedBuilding?.id === buildingId) {
-              setSelectedBuildingId(null);
+            if (buildingPanelSelectedId === buildingId) {
+              setBuildingPanelSelectedId(null);
               setSelectedRegionId(null);
               return;
             }
+            setBuildingPanelSelectedId(buildingId);
             setSelectedBuildingId(buildingId);
             const region = state.regions.find((item) => item.buildingId === buildingId);
             setSelectedRegionId(region?.id || null);
           }}
           onOpenBuilding={(buildingId) => {
+            setBuildingPanelSelectedId(buildingId);
             setSelectedBuildingId(buildingId);
             const region = state.regions.find((item) => item.buildingId === buildingId);
             setSelectedRegionId(region?.id || null);
@@ -1757,9 +1859,9 @@ function HistoryActionGroup({ type, icon, title, emptyTitle, items, disabled, is
             <span className="history-empty">{emptyTitle}</span>
           ) : (
             visibleItems.map(({ item, count }) => (
-              <button key={item.id} type="button" onClick={() => onStep(count)}>
+              <button key={item.id} type="button" title={`${item.label} · ${formatHistoryTime(item.at)}`} onClick={() => onStep(count)}>
                 <span>{item.label}</span>
-                <small>{count} adım</small>
+                <small>{formatHistoryTime(item.at)} · {count} adım</small>
               </button>
             ))
           )}
@@ -2055,7 +2157,6 @@ function MapPanel({
           {user.role === "admin" && (
             <>
               <div className="history-status" title={historyStatus}>
-                <span>Son işlem</span>
                 <strong>{historyStatus}</strong>
               </div>
               <HistoryActionGroup
@@ -3201,6 +3302,7 @@ function BuildingsPanel({
   });
   const selectedBuilding = buildings.find((building) => building.id === selectedBuildingId);
   const selectedCategoryProgressItems = selectedBuilding ? getCategoryProgressItems(selectedBuilding, selectedBuilding.works) : [];
+  const selectedWorkGroups = selectedBuilding ? groupWorksByCategory(selectedBuilding.works) : [];
 
   return (
     <main className={`buildings-layout ${selectedBuilding ? "" : "list-only"}`}>
@@ -3350,7 +3452,14 @@ function BuildingsPanel({
 
           <div className="building-admin-work-list">
             {selectedBuilding.works.length === 0 && <div className="empty-state">Bu bina için iş kalemi yok.</div>}
-            {selectedBuilding.works.map((work) => {
+            {selectedWorkGroups.map((category) => (
+              <details className="building-work-category" key={category.key} open>
+                <summary>
+                  <span>{category.label}</span>
+                  <b>{getWorksProgress(selectedBuilding, category.items)}%</b>
+                  <ChevronDown size={16} />
+                </summary>
+                {category.items.map((work) => {
               const value = Number(selectedBuilding.progress?.[work.key] || 0);
               const remaining = getWorkRemainingQuantity(selectedBuilding, work);
               return (
@@ -3405,7 +3514,9 @@ function BuildingsPanel({
                   </button>
                 </article>
               );
-            })}
+                })}
+              </details>
+            ))}
           </div>
         </section>
       )}
@@ -3578,6 +3689,7 @@ function UsersPanel({
   });
   const selectedWorkPermissions = getUserWorkPermissions(selectedUser, workItems);
   const visibleWorkItems = workItems.filter((work) => !isForemanHiddenWork(work));
+  const visibleWorkGroups = groupWorksByCategory(visibleWorkItems);
 
   function submitNewUser(event) {
     event.preventDefault();
@@ -3710,7 +3822,15 @@ function UsersPanel({
               </button>
             </form>
             <div className="ready-work-list">
-              {visibleWorkItems.map((work) => (
+              {visibleWorkGroups.map((category) => (
+                <details className="category-work-section" key={category.key} open>
+                  <summary>
+                    <span>{category.label}</span>
+                    <b>{category.items.length} kalem</b>
+                    <ChevronDown size={16} />
+                  </summary>
+                  <div className="ready-work-list-inner">
+                    {category.items.map((work) => (
                 <span key={work.key}>
                   <b>{work.label}</b>
                   <em>{workCategoryMeta[getWorkCategory(work)]?.label || getWorkCategory(work)}</em>
@@ -3718,6 +3838,9 @@ function UsersPanel({
                     <X size={15} />
                   </button>
                 </span>
+                    ))}
+                  </div>
+                </details>
               ))}
             </div>
           </div>
@@ -3736,19 +3859,52 @@ function UsersPanel({
                   </div>
                 </div>
                 <div className="work-permission-grid">
-                  {visibleWorkItems.map((work) => {
-                    const checked = selectedWorkPermissions.includes(work.key);
-                    return (
-                      <label className={checked ? "checked" : ""} key={work.key}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => onToggleWorkPermission(selectedUser.id, work.key)}
-                        />
-                        <span>{work.label}</span>
-                      </label>
-                    );
-                  })}
+                  {visibleWorkGroups.map((category) => (
+                    <details className="category-work-section permission-category" key={category.key} open>
+                      <summary>
+                        <span>{category.label}</span>
+                        <b>
+                          {category.items.filter((work) => selectedWorkPermissions.includes(work.key)).length}/{category.items.length}
+                        </b>
+                        <div className="category-actions">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              onBulkWorkPermissions(selectedUser.id, { type: "add", keys: category.items.map((work) => work.key) });
+                            }}
+                          >
+                            Seç
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              onBulkWorkPermissions(selectedUser.id, { type: "remove", keys: category.items.map((work) => work.key) });
+                            }}
+                          >
+                            Temizle
+                          </button>
+                        </div>
+                        <ChevronDown size={16} />
+                      </summary>
+                      <div className="work-permission-grid-inner">
+                        {category.items.map((work) => {
+                          const checked = selectedWorkPermissions.includes(work.key);
+                          return (
+                            <label className={checked ? "checked" : ""} key={work.key}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => onToggleWorkPermission(selectedUser.id, work.key)}
+                              />
+                              <span>{work.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  ))}
                 </div>
               </div>
 
