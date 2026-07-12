@@ -16,6 +16,7 @@ import {
   MessageSquare,
   Moon,
   Plus,
+  Redo2,
   Search,
   Settings,
   ShieldCheck,
@@ -274,6 +275,13 @@ function makeThemeStyle(themeSettings, mode) {
 
 function isSessionLog(log) {
   return ["Giriş yapıldı", "Çıkış yapıldı"].includes(log?.action);
+}
+
+function getHistoryLabel(previous, draft) {
+  const latest = draft.logs?.[0];
+  const previousLatestId = previous.logs?.[0]?.id;
+  if (!latest || latest.id === previousLatestId || isSessionLog(latest)) return "";
+  return [latest.action, latest.detail].filter(Boolean).join(" · ");
 }
 
 function copySeed() {
@@ -694,7 +702,10 @@ function App() {
   const [zoom, setZoom] = useState(1);
   const [theme, setTheme] = useState(() => readStorage(THEME_KEY) || "light");
   const undoHistoryRef = useRef([]);
+  const redoHistoryRef = useRef([]);
   const [undoCount, setUndoCount] = useState(0);
+  const [redoCount, setRedoCount] = useState(0);
+  const [historyStatus, setHistoryStatus] = useState("Henüz değişiklik yok");
 
   useEffect(() => {
     writeStorage(STORAGE_KEY, JSON.stringify(state));
@@ -745,19 +756,56 @@ function App() {
     setState((previous) => {
       const draft = JSON.parse(JSON.stringify(previous));
       updater(draft);
+      const historyLabel = getHistoryLabel(previous, draft);
       draft.logs = (draft.logs || []).filter(isSessionLog);
-      undoHistoryRef.current = [...undoHistoryRef.current.slice(-19), previous];
-      setUndoCount(undoHistoryRef.current.length);
+      if (currentUser?.role === "admin" && historyLabel) {
+        undoHistoryRef.current = [
+          ...undoHistoryRef.current.slice(-19),
+          {
+            id: `HIST-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            label: historyLabel,
+            at: new Date().toISOString(),
+            before: previous,
+            after: draft,
+          },
+        ];
+        redoHistoryRef.current = [];
+        setUndoCount(undoHistoryRef.current.length);
+        setRedoCount(0);
+        setHistoryStatus(`Son değişiklik: ${historyLabel}`);
+      }
       return draft;
     });
   }
 
-  function undoLastAdminAction() {
+  function undoAdminActions(count = 1) {
     if (currentUser?.role !== "admin" || undoHistoryRef.current.length === 0) return;
-    const previous = undoHistoryRef.current[undoHistoryRef.current.length - 1];
-    undoHistoryRef.current = undoHistoryRef.current.slice(0, -1);
+    const stepCount = Math.min(Math.max(1, count), undoHistoryRef.current.length);
+    const undone = undoHistoryRef.current.slice(-stepCount);
+    const target = undone[0].before;
+    undoHistoryRef.current = undoHistoryRef.current.slice(0, -stepCount);
+    redoHistoryRef.current = [...undone, ...redoHistoryRef.current].slice(0, 20);
     setUndoCount(undoHistoryRef.current.length);
-    setState(previous);
+    setRedoCount(redoHistoryRef.current.length);
+    setHistoryStatus(
+      stepCount === 1 ? `Geri alındı: ${undone[0].label}` : `${stepCount} işlem geri alındı: ${undone[0].label}`,
+    );
+    setState(target);
+  }
+
+  function redoAdminActions(count = 1) {
+    if (currentUser?.role !== "admin" || redoHistoryRef.current.length === 0) return;
+    const stepCount = Math.min(Math.max(1, count), redoHistoryRef.current.length);
+    const redone = redoHistoryRef.current.slice(0, stepCount);
+    const target = redone[redone.length - 1].after;
+    redoHistoryRef.current = redoHistoryRef.current.slice(stepCount);
+    undoHistoryRef.current = [...undoHistoryRef.current, ...redone].slice(-20);
+    setUndoCount(undoHistoryRef.current.length);
+    setRedoCount(redoHistoryRef.current.length);
+    setHistoryStatus(
+      stepCount === 1 ? `İleri alındı: ${redone[0].label}` : `${stepCount} işlem ileri alındı: ${redone[0].label}`,
+    );
+    setState(target);
   }
 
   function login(userId) {
@@ -791,7 +839,10 @@ function App() {
   function resetDemoData() {
     const fresh = copySeed();
     undoHistoryRef.current = [];
+    redoHistoryRef.current = [];
     setUndoCount(0);
+    setRedoCount(0);
+    setHistoryStatus("Veri sıfırlandı");
     setState(fresh);
     const user = fresh.users.find((item) => item.role === "admin");
     setCurrentUserId(user?.id || null);
@@ -1405,8 +1456,13 @@ function App() {
               onManualModeChange={setManualMode}
               onManualShapeChange={setManualShape}
               onManualRegionAdd={addManualRegion}
+              undoItems={undoHistoryRef.current}
+              redoItems={redoHistoryRef.current}
               undoCount={undoCount}
-              onUndo={undoLastAdminAction}
+              redoCount={redoCount}
+              historyStatus={historyStatus}
+              onUndo={undoAdminActions}
+              onRedo={redoAdminActions}
               onSelect={(region) => {
                 if (!canAccess(currentUser, region.buildingId)) return;
                 setSelectedRegionId(region.id);
@@ -1668,6 +1724,51 @@ function BuildingSidebar({ buildings, user, progressRanges, totalCount, query, o
   );
 }
 
+function HistoryActionGroup({ type, icon, title, emptyTitle, items, disabled, isOpen, onToggle, onStep }) {
+  const isUndo = type === "undo";
+  const visibleItems = isUndo
+    ? items.map((item, index) => ({ item, count: items.length - index })).reverse()
+    : items.map((item, index) => ({ item, count: index + 1 }));
+
+  return (
+    <div className="history-action-group">
+      <button
+        className={`icon-button ${type}-action`}
+        title={disabled ? emptyTitle : title}
+        type="button"
+        disabled={disabled}
+        onClick={() => onStep(1)}
+      >
+        {icon}
+      </button>
+      <button
+        className="icon-button history-menu-trigger"
+        title={`${title} listesini aç`}
+        type="button"
+        disabled={disabled}
+        onClick={onToggle}
+      >
+        <ChevronDown size={14} />
+      </button>
+      {isOpen && (
+        <div className="history-menu">
+          <strong>{title}</strong>
+          {visibleItems.length === 0 ? (
+            <span className="history-empty">{emptyTitle}</span>
+          ) : (
+            visibleItems.map(({ item, count }) => (
+              <button key={item.id} type="button" onClick={() => onStep(count)}>
+                <span>{item.label}</span>
+                <small>{count} adım</small>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MapPanel({
   map,
   regions,
@@ -1682,13 +1783,19 @@ function MapPanel({
   onManualModeChange,
   onManualShapeChange,
   onManualRegionAdd,
+  undoItems = [],
+  redoItems = [],
   undoCount = 0,
+  redoCount = 0,
+  historyStatus = "",
   onUndo,
+  onRedo,
   onSelect,
 }) {
   const [draftPoints, setDraftPoints] = useState([]);
   const [draftRect, setDraftRect] = useState(null);
   const [isPanning, setIsPanning] = useState(false);
+  const [historyMenu, setHistoryMenu] = useState(null);
   const viewportRef = useRef(null);
   const zoomValueRef = useRef(zoom);
   const panValueRef = useRef({ x: 0, y: 0 });
@@ -1947,14 +2054,38 @@ function MapPanel({
         <div className="map-actions">
           {user.role === "admin" && (
             <>
-              <button
-                className="icon-button undo-action"
-                title={undoCount > 0 ? `Son işlemi geri al (${Math.min(undoCount, 20)}/20)` : "Geri alınacak işlem yok"}
+              <div className="history-status" title={historyStatus}>
+                <span>Son işlem</span>
+                <strong>{historyStatus}</strong>
+              </div>
+              <HistoryActionGroup
+                type="undo"
+                icon={<Undo2 size={17} />}
+                title={`Geri al (${Math.min(undoCount, 20)}/20)`}
+                emptyTitle="Geri alınacak işlem yok"
+                items={undoItems}
                 disabled={undoCount === 0}
-                onClick={onUndo}
-              >
-                <Undo2 size={17} />
-              </button>
+                isOpen={historyMenu === "undo"}
+                onToggle={() => setHistoryMenu(historyMenu === "undo" ? null : "undo")}
+                onStep={(count) => {
+                  onUndo(count);
+                  setHistoryMenu(null);
+                }}
+              />
+              <HistoryActionGroup
+                type="redo"
+                icon={<Redo2 size={17} />}
+                title={`İleri al (${Math.min(redoCount, 20)}/20)`}
+                emptyTitle="İleri alınacak işlem yok"
+                items={redoItems}
+                disabled={redoCount === 0}
+                isOpen={historyMenu === "redo"}
+                onToggle={() => setHistoryMenu(historyMenu === "redo" ? null : "redo")}
+                onStep={(count) => {
+                  onRedo(count);
+                  setHistoryMenu(null);
+                }}
+              />
               <button
                 className={`secondary-action tool-toggle ${manualMode ? "active" : ""}`}
                 onClick={() => onManualModeChange(!manualMode)}

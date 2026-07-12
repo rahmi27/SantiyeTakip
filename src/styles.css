@@ -240,10 +240,106 @@ img {
   border-color: var(--accent);
 }
 
-.undo-action:not(:disabled) {
+.undo-action:not(:disabled),
+.redo-action:not(:disabled) {
   color: #fff;
   background: var(--accent-strong);
   border-color: var(--accent-strong);
+}
+
+.history-status {
+  display: grid;
+  min-width: 210px;
+  max-width: 360px;
+  padding: 5px 9px;
+  background: color-mix(in srgb, var(--panel-strong) 88%, var(--accent));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.history-status span {
+  color: var(--text-soft);
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.history-status strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-action-group {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.history-action-group > .icon-button:first-child {
+  border-radius: 8px 0 0 8px;
+}
+
+.history-action-group > .icon-button:last-of-type {
+  width: 24px;
+  margin-left: -1px;
+  border-radius: 0 8px 8px 0;
+}
+
+.history-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  display: grid;
+  gap: 5px;
+  width: min(360px, calc(100vw - 32px));
+  max-height: 320px;
+  padding: 8px;
+  overflow: auto;
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.history-menu > strong {
+  padding: 2px 4px 6px;
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.history-menu button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 8px;
+  color: var(--ink);
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.history-menu button:hover {
+  border-color: var(--accent);
+}
+
+.history-menu button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-menu button small,
+.history-empty {
+  color: var(--text-soft);
+  font-size: 11px;
 }
 
 .topbar .icon-button {
