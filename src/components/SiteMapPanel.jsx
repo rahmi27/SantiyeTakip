@@ -107,6 +107,32 @@ function FocusBuilding({ building, imageHeight }) {
   return null;
 }
 
+function MapLabelScale() {
+  const map = useMap();
+
+  useEffect(() => {
+    const container = map.getContainer();
+    let frame = 0;
+
+    const updateScale = () => {
+      const relativeZoom = map.getZoom() - map.getMinZoom();
+      container.dataset.labelScale =
+        relativeZoom < 0.9 ? "far" : relativeZoom < 2.2 ? "compact" : relativeZoom < 3.5 ? "detail" : "full";
+    };
+
+    frame = requestAnimationFrame(updateScale);
+    map.on("zoomend", updateScale);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      map.off("zoomend", updateScale);
+      delete container.dataset.labelScale;
+    };
+  }, [map]);
+
+  return null;
+}
+
 function HiddenDrawControl({ imageHeight, request, onCreated }) {
   const map = useMap();
   const controlRef = useRef(null);
@@ -368,6 +394,7 @@ export default function SiteMapPanel({
           className="site-leaflet-map"
         >
           <FitImageBounds bounds={bounds} />
+          <MapLabelScale />
           <FocusBuilding building={selectedBuilding} imageHeight={map.height} />
           <ImageOverlay url={map.image} bounds={bounds} opacity={1} interactive={false} />
 
@@ -384,9 +411,9 @@ export default function SiteMapPanel({
                 pathOptions={{
                   color: selectedBuildingId === building.id ? "#111827" : "#6b7280",
                   fillColor,
-                  fillOpacity: allowed ? 0.5 : 0.12,
+                  fillOpacity: allowed ? 0.32 : 0.07,
                   opacity: allowed ? 1 : 0.35,
-                  weight: selectedBuildingId === building.id ? 4 : 2,
+                  weight: selectedBuildingId === building.id ? 3 : 1.25,
                 }}
                 eventHandlers={{
                   click: () => allowed && onSelect(building.id),
