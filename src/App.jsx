@@ -26,8 +26,6 @@ import {
   Upload,
   UserCog,
   X,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import seedData from "./data/siteData.json";
 
@@ -1982,16 +1980,6 @@ function MapPanel({
     applyPan(nextPan, nextZoom);
   }
 
-  function zoomAtViewportCenter(nextZoom) {
-    const element = viewportRef.current;
-    if (!element) {
-      onZoom(nextZoom);
-      return;
-    }
-    const rect = element.getBoundingClientRect();
-    zoomAtPoint(rect.left + rect.width / 2, rect.top + rect.height / 2, nextZoom);
-  }
-
   function handleMapWheel(event) {
     const element = viewportRef.current;
     if (!element) return;
@@ -2217,21 +2205,6 @@ function MapPanel({
               </button>
             </>
           )}
-          <button className="icon-button" title="Uzaklaştır" onClick={() => zoomAtViewportCenter(clampMapZoom(zoom - 0.5))}>
-            <ZoomOut size={17} />
-          </button>
-          <input
-            aria-label="Harita yakınlaştırma"
-            type="range"
-            min={minMapZoom}
-            max={maxMapZoom}
-            step="0.05"
-            value={zoom}
-            onChange={(event) => zoomAtViewportCenter(clampMapZoom(event.target.value))}
-          />
-          <button className="icon-button" title="Yakınlaştır" onClick={() => zoomAtViewportCenter(clampMapZoom(zoom + 0.5))}>
-            <ZoomIn size={17} />
-          </button>
         </div>
       </div>
 

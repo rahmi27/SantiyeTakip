@@ -292,10 +292,10 @@ img {
   right: 0;
   z-index: 50;
   display: grid;
-  gap: 5px;
-  width: min(360px, calc(100vw - 32px));
-  max-height: 320px;
-  padding: 8px;
+  gap: 7px;
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(520px, 70vh);
+  padding: 10px;
   overflow: auto;
   background: var(--panel-strong);
   border: 1px solid var(--line);
@@ -311,11 +311,11 @@ img {
 
 .history-menu button {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  align-items: start;
   width: 100%;
-  padding: 8px;
+  padding: 10px;
   color: var(--ink);
   text-align: left;
   background: var(--panel);
@@ -328,15 +328,15 @@ img {
 }
 
 .history-menu button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .history-menu button small,
 .history-empty {
   color: var(--text-soft);
   font-size: 11px;
+  line-height: 1.25;
 }
 
 .topbar .icon-button {
@@ -592,10 +592,6 @@ img {
 .map-toolbar span {
   color: var(--text-soft);
   font-size: 12px;
-}
-
-.map-actions input {
-  width: 120px;
 }
 
 .tool-toggle.active {
