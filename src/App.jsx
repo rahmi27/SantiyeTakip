@@ -389,9 +389,15 @@ function mergeSeedBuildings(savedBuildings = []) {
   return seedData.buildings.map((seedBuilding) => {
     const saved = savedById.get(seedBuilding.id);
     if (!saved) return seedBuilding;
-    const workKeys = seedBuilding.works.map((work) => work.key);
+    const works = Array.isArray(saved.works) ? saved.works : seedBuilding.works;
+    const workKeys = works.map((work) => work.key);
     return {
       ...seedBuilding,
+      code: saved.code || seedBuilding.code,
+      name: saved.name || seedBuilding.name,
+      lineColor: saved.lineColor || seedBuilding.lineColor,
+      quantity: saved.quantity || seedBuilding.quantity,
+      works,
       progress: Object.fromEntries(
         workKeys.map((key) => [key, clampPercent(saved.progress?.[key] ?? seedBuilding.progress?.[key] ?? 0)]),
       ),
@@ -409,17 +415,25 @@ function loadInitialState() {
     const parsed = JSON.parse(saved);
     const allWorkKeys = seed.workItems.map((work) => work.key);
     const seedBuildingIds = new Set(seed.buildings.map((building) => building.id));
+    const buildingDataChanged = parsed.buildingDataVersion !== seed.buildingDataVersion;
     const users = (parsed.users?.length ? parsed.users : seed.users).map((user) => ({
       ...user,
+      permissions:
+        user.role === "admin"
+          ? [...seedBuildingIds]
+          : (user.permissions || []).filter((buildingId) => seedBuildingIds.has(buildingId)),
       workPermissions: user.role === "admin" ? allWorkKeys : user.workPermissions || [],
     }));
     return normalizeState({
       ...seed,
       ...parsed,
-      buildings: mergeSeedBuildings(parsed.buildings || []),
+      buildingDataVersion: seed.buildingDataVersion,
+      buildings: buildingDataChanged ? seed.buildings : mergeSeedBuildings(parsed.buildings || []),
       workItems: seedData.workItems,
       users,
-      requests: (parsed.requests || []).filter((request) => seedBuildingIds.has(request.buildingId)),
+      requests: buildingDataChanged
+        ? []
+        : (parsed.requests || []).filter((request) => seedBuildingIds.has(request.buildingId)),
       progressRanges: parsed.progressRanges?.length ? parsed.progressRanges : seed.progressRanges,
     });
   } catch {

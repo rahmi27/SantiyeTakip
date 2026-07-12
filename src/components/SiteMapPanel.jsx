@@ -392,10 +392,10 @@ export default function SiteMapPanel({
                   click: () => allowed && onSelect(building.id),
                 }}
               >
-                <Tooltip sticky direction="top">
-                  <strong>{building.code} · {building.name}</strong>
-                  <br />
-                  İlerleme %{progress}
+                <Tooltip permanent direction="center" className="building-map-label" opacity={1}>
+                  <strong>{building.code}</strong>
+                  <span>{building.name}</span>
+                  <em>%{progress}</em>
                 </Tooltip>
               </Polygon>
             );
