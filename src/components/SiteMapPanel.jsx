@@ -8,30 +8,63 @@ import "leaflet-draw/dist/leaflet.draw.css";
 
 const MAX_RELATIVE_ZOOM = 24;
 
-function snapToRightAngle(map, previousLatLng, rawLatLng) {
-  if (!previousLatLng) return rawLatLng;
-  const previous = map.latLngToLayerPoint(previousLatLng);
+function getDrawingBasis(map, markers) {
+  if (!markers || markers.length < 2) return null;
+  const first = map.latLngToLayerPoint(markers[0].getLatLng());
+  const second = map.latLngToLayerPoint(markers[1].getLatLng());
+  const dx = second.x - first.x;
+  const dy = second.y - first.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.001) return null;
+  return { parallel: { x: dx / length, y: dy / length }, perpendicular: { x: -dy / length, y: dx / length } };
+}
+
+function snapToDrawingBasis(map, markers, rawLatLng) {
+  const basis = getDrawingBasis(map, markers);
+  if (!basis) return rawLatLng;
+  const previous = map.latLngToLayerPoint(markers[markers.length - 1].getLatLng());
   const current = map.latLngToLayerPoint(rawLatLng);
-  const snapped =
-    Math.abs(current.x - previous.x) >= Math.abs(current.y - previous.y)
-      ? L.point(current.x, previous.y)
-      : L.point(previous.x, current.y);
+  const dx = current.x - previous.x;
+  const dy = current.y - previous.y;
+  const parallelLength = dx * basis.parallel.x + dy * basis.parallel.y;
+  const perpendicularLength = dx * basis.perpendicular.x + dy * basis.perpendicular.y;
+  const axis = Math.abs(parallelLength) >= Math.abs(perpendicularLength) ? basis.parallel : basis.perpendicular;
+  const distance = Math.abs(parallelLength) >= Math.abs(perpendicularLength) ? parallelLength : perpendicularLength;
+  const snapped = L.point(previous.x + axis.x * distance, previous.y + axis.y * distance);
   return map.layerPointToLatLng(snapped);
 }
 
 function orthogonalizeCoordinates(coordinates) {
   if (coordinates.length < 3) return coordinates;
-  const result = [coordinates[0]];
+  const [first, second] = coordinates;
+  const baseX = second[0] - first[0];
+  const baseY = second[1] - first[1];
+  const baseLength = Math.hypot(baseX, baseY);
+  if (baseLength < 0.001) return coordinates;
+  const parallel = { x: baseX / baseLength, y: baseY / baseLength };
+  const perpendicular = { x: -parallel.y, y: parallel.x };
+  const result = [first, second];
 
-  coordinates.slice(1).forEach(([x, y]) => {
+  coordinates.slice(2).forEach(([x, y]) => {
     const [previousX, previousY] = result[result.length - 1];
-    result.push(Math.abs(x - previousX) >= Math.abs(y - previousY) ? [x, previousY] : [previousX, y]);
+    const dx = x - previousX;
+    const dy = y - previousY;
+    const parallelLength = dx * parallel.x + dy * parallel.y;
+    const perpendicularLength = dx * perpendicular.x + dy * perpendicular.y;
+    const axis = Math.abs(parallelLength) >= Math.abs(perpendicularLength) ? parallel : perpendicular;
+    const distance = Math.abs(parallelLength) >= Math.abs(perpendicularLength) ? parallelLength : perpendicularLength;
+    result.push([previousX + axis.x * distance, previousY + axis.y * distance]);
   });
 
-  const [firstX, firstY] = result[0];
   const [lastX, lastY] = result[result.length - 1];
-  if (firstX !== lastX && firstY !== lastY) result.push([firstX, lastY]);
-  return result;
+  const closureX = first[0] - lastX;
+  const closureY = first[1] - lastY;
+  const closureParallel = closureX * parallel.x + closureY * parallel.y;
+  const closurePerpendicular = closureX * perpendicular.x + closureY * perpendicular.y;
+  if (Math.abs(closureParallel) > 0.01 && Math.abs(closurePerpendicular) > 0.01) {
+    result.push([lastX + parallel.x * closureParallel, lastY + parallel.y * closureParallel]);
+  }
+  return result.map(([x, y]) => [Number(x.toFixed(2)), Number(y.toFixed(2))]);
 }
 
 function FitImageBounds({ bounds }) {
@@ -89,14 +122,12 @@ function HiddenDrawControl({ imageHeight, request, onCreated }) {
       if (!polygonHandler.__orthogonalPatched) {
         const originalAddVertex = polygonHandler.addVertex;
         polygonHandler.addVertex = function addOrthogonalVertex(latLng) {
-          const previousLatLng = this._markers?.[this._markers.length - 1]?.getLatLng();
-          return originalAddVertex.call(this, snapToRightAngle(this._map, previousLatLng, latLng));
+          return originalAddVertex.call(this, snapToDrawingBasis(this._map, this._markers, latLng));
         };
         polygonHandler._onMouseMove = function moveOrthogonalGuide(event) {
           const rawPoint = this._map.mouseEventToLayerPoint(event.originalEvent);
           const rawLatLng = this._map.layerPointToLatLng(rawPoint);
-          const previousLatLng = this._markers?.[this._markers.length - 1]?.getLatLng();
-          const latLng = snapToRightAngle(this._map, previousLatLng, rawLatLng);
+          const latLng = snapToDrawingBasis(this._map, this._markers, rawLatLng);
           const snappedPoint = this._map.latLngToLayerPoint(latLng);
           this._currentLatLng = latLng;
           this._updateTooltip(latLng);

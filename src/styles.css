@@ -586,12 +586,13 @@ img {
 
 .leaflet-map-section {
   position: relative;
+  isolation: isolate;
   background: var(--panel-soft);
 }
 
 .leaflet-map-toolbar {
   position: relative;
-  z-index: 30;
+  z-index: 3000;
   justify-content: flex-end;
   gap: 6px;
   min-height: 50px;
@@ -605,12 +606,15 @@ img {
 
 .leaflet-map-shell {
   position: relative;
+  z-index: 1;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
 .site-leaflet-map {
+  position: relative;
+  z-index: 0;
   width: 100%;
   height: 100%;
   min-height: 360px;
@@ -1995,6 +1999,10 @@ img {
   overflow: auto;
 }
 
+.permission-panel {
+  overflow-x: hidden;
+}
+
 .building-admin-list-panel {
   overflow: hidden;
   max-height: calc(100dvh - 86px);
@@ -2148,6 +2156,10 @@ img {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 8px;
+}
+
+.ready-work-list-inner {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .category-actions {
@@ -2323,6 +2335,23 @@ img {
   gap: 8px;
 }
 
+.category-manager-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 7px;
+}
+
+.category-manager-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 6px;
+  align-items: center;
+  padding: 7px;
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 .ready-work-form input,
 .ready-work-form select,
 .category-form input {
@@ -2332,6 +2361,19 @@ img {
   background: var(--panel-strong);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.category-manager-row input,
+.ready-work-edit-row input,
+.ready-work-edit-row select {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 8px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
 }
 
 .ready-work-list {
@@ -2349,6 +2391,10 @@ img {
   background: var(--panel-strong);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.ready-work-list .ready-work-edit-row {
+  grid-template-columns: minmax(180px, 1fr) minmax(130px, 0.45fr) 36px;
 }
 
 .ready-work-list b {
@@ -2527,6 +2573,15 @@ img {
 
   .category-form {
     grid-template-columns: 1fr;
+  }
+
+  .ready-work-list .ready-work-edit-row {
+    grid-template-columns: 1fr 36px;
+  }
+
+  .ready-work-edit-row select {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 
   .ready-work-list-inner,

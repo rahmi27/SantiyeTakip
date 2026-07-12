@@ -121,10 +121,14 @@ const workCategoryByKey = {
 };
 
 function getWorkCategoryMeta(customCategories) {
-  return {
+  const categories = {
     ...defaultWorkCategoryMeta,
-    ...(customCategories || {}),
   };
+  Object.entries(customCategories || {}).forEach(([key, meta]) => {
+    if (meta?.deleted) delete categories[key];
+    else categories[key] = meta;
+  });
+  return categories;
 }
 
 function makeCategoryKey(value) {
@@ -540,7 +544,8 @@ function getWorkCategory(work) {
 }
 
 function getSafeWorkCategory(category, categoryMeta = defaultWorkCategoryMeta) {
-  return categoryMeta[category] ? category : "sihhi_tesisat";
+  if (categoryMeta[category]) return category;
+  return Object.keys(categoryMeta).find((key) => !["sihhi", "isitma", "yangin"].includes(key)) || Object.keys(categoryMeta)[0] || "sihhi_tesisat";
 }
 
 function WorkCategorySelect({ value, onChange, categoryMeta = defaultWorkCategoryMeta }) {
@@ -988,14 +993,91 @@ function App() {
     });
   }
 
+  function updateWorkCategory(categoryKey, label) {
+    const cleanLabel = String(label || "").trim();
+    if (!cleanLabel) return;
+    updateState((draft) => {
+      draft.workCategories = draft.workCategories || {};
+      const current = getWorkCategoryMeta(draft.workCategories)[categoryKey];
+      if (!current || current.label === cleanLabel) return;
+      draft.workCategories[categoryKey] = { ...current, label: cleanLabel, deleted: false };
+      draft.logs.unshift(makeLog(currentUser, "İş kategorisi düzenlendi", `${current.label} → ${cleanLabel}`));
+    });
+  }
+
+  function deleteWorkCategory(categoryKey) {
+    const categoryMeta = getWorkCategoryMeta(state.workCategories);
+    const category = categoryMeta[categoryKey];
+    const remainingKeys = Object.keys(categoryMeta).filter((key) => key !== categoryKey && !["sihhi", "isitma", "yangin"].includes(key));
+    if (!category || remainingKeys.length === 0) return;
+    if (!confirmAction(`“${category.label}” kategorisini silmek istediğine emin misin? İçindeki işler başka kategoriye taşınacak.`)) return;
+    updateState((draft) => {
+      draft.workCategories = draft.workCategories || {};
+      const current = getWorkCategoryMeta(draft.workCategories)[categoryKey];
+      const nextMeta = getWorkCategoryMeta({
+        ...draft.workCategories,
+        [categoryKey]: { ...(draft.workCategories[categoryKey] || current), deleted: true },
+      });
+      const fallbackCategory = getSafeWorkCategory("", nextMeta);
+      if (defaultWorkCategoryMeta[categoryKey]) {
+        draft.workCategories[categoryKey] = { ...current, deleted: true };
+      } else {
+        delete draft.workCategories[categoryKey];
+      }
+      draft.workItems.forEach((work) => {
+        if (getWorkCategory(work) === categoryKey) work.category = fallbackCategory;
+      });
+      draft.buildings.forEach((building) => {
+        building.works.forEach((work) => {
+          if (getWorkCategory(work) === categoryKey) work.category = fallbackCategory;
+        });
+      });
+      draft.logs.unshift(makeLog(currentUser, "İş kategorisi silindi", `${current.label} · işler ${nextMeta[fallbackCategory]?.label || fallbackCategory} kategorisine taşındı`));
+    });
+  }
+
+  function updateGlobalWorkItem(workKey, patch) {
+    updateState((draft) => {
+      const work = draft.workItems.find((item) => item.key === workKey);
+      if (!work || isForemanHiddenWork(work)) return;
+      const previousLabel = work.label;
+      const previousCategory = getWorkCategory(work);
+      const categoryMeta = getWorkCategoryMeta(draft.workCategories);
+      const nextLabel = patch.label === undefined ? work.label : String(patch.label || "").trim();
+      const nextCategory = patch.category === undefined ? previousCategory : getSafeWorkCategory(patch.category, categoryMeta);
+      if (!nextLabel) return;
+      if (nextLabel === previousLabel && nextCategory === previousCategory) return;
+      work.label = nextLabel;
+      work.category = nextCategory;
+      draft.buildings.forEach((building) => {
+        building.works.forEach((buildingWork) => {
+          if (buildingWork.key !== workKey) return;
+          buildingWork.label = nextLabel;
+          buildingWork.category = nextCategory;
+        });
+      });
+      draft.logs.unshift(
+        makeLog(currentUser, "Hazır iş kalemi düzenlendi", `${previousLabel} → ${nextLabel} · ${categoryMeta[nextCategory]?.label || nextCategory}`),
+      );
+    });
+  }
+
   function deleteGlobalWorkItem(workKey) {
-    if (!confirmAction("Bu hazır iş kalemini listeden kaldırmak istediğine emin misin?")) return;
+    if (!confirmAction("Bu hazır iş kalemini tüm binalardan, izinlerden ve açık taleplerden silmek istediğine emin misin?")) return;
     updateState((draft) => {
       const work = draft.workItems.find((item) => item.key === workKey);
       if (!work || isForemanHiddenWork(work)) return;
       draft.workItems = draft.workItems.filter((item) => item.key !== workKey);
       draft.users.forEach((user) => {
         user.workPermissions = (user.workPermissions || []).filter((key) => key !== workKey);
+      });
+      draft.buildings.forEach((building) => {
+        building.works = building.works.filter((item) => item.key !== workKey);
+        if (building.progress) delete building.progress[workKey];
+      });
+      draft.requests.forEach((request) => {
+        request.items = (request.items || []).filter((item) => item.workKey !== workKey);
+        request.workKeys = (request.workKeys || []).filter((key) => key !== workKey);
       });
       draft.logs.unshift(makeLog(currentUser, "Hazır iş kalemi kaldırıldı", work.label));
     });
@@ -1579,6 +1661,9 @@ function App() {
           onBulkWorkPermissions={bulkSetWorkPermissions}
           onAddGlobalWorkItem={addGlobalWorkItem}
           onAddWorkCategory={addWorkCategory}
+          onUpdateWorkCategory={updateWorkCategory}
+          onDeleteWorkCategory={deleteWorkCategory}
+          onUpdateGlobalWorkItem={updateGlobalWorkItem}
           onDeleteGlobalWorkItem={deleteGlobalWorkItem}
           onAddUser={addUser}
           onDeleteUser={deleteUser}
@@ -3113,6 +3198,9 @@ function UsersPanel({
   onBulkWorkPermissions,
   onAddGlobalWorkItem,
   onAddWorkCategory,
+  onUpdateWorkCategory,
+  onDeleteWorkCategory,
+  onUpdateGlobalWorkItem,
   onDeleteGlobalWorkItem,
   onAddUser,
   onDeleteUser,
@@ -3133,6 +3221,9 @@ function UsersPanel({
   const visibleWorkItems = workItems.filter((work) => !isForemanHiddenWork(work));
   const categoryMeta = getWorkCategoryMeta(workCategories);
   const visibleWorkGroups = groupWorksByCategory(visibleWorkItems, categoryMeta);
+  const editableCategories = Object.entries(categoryMeta)
+    .filter(([key]) => !["sihhi", "isitma", "yangin"].includes(key))
+    .sort((a, b) => a[1].order - b[1].order);
 
   function submitNewUser(event) {
     event.preventDefault();
@@ -3283,6 +3374,29 @@ function UsersPanel({
                 Kategori ekle
               </button>
             </form>
+            <div className="category-manager-list">
+              {editableCategories.map(([categoryKey, category]) => (
+                <div className="category-manager-row" key={`${categoryKey}-${category.label}`}>
+                  <input
+                    aria-label={`${category.label} kategori adı`}
+                    defaultValue={category.label}
+                    onBlur={(event) => onUpdateWorkCategory(categoryKey, event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                    }}
+                  />
+                  <button
+                    className="icon-button danger"
+                    type="button"
+                    title={`${category.label} kategorisini sil`}
+                    disabled={editableCategories.length <= 1}
+                    onClick={() => onDeleteWorkCategory(categoryKey)}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
             <div className="ready-work-list">
               {visibleWorkGroups.map((category) => (
                 <details className="category-work-section" key={category.key} open>
@@ -3293,13 +3407,30 @@ function UsersPanel({
                   </summary>
                   <div className="ready-work-list-inner">
                     {category.items.map((work) => (
-                <span key={work.key}>
-                  <b>{work.label}</b>
-                  <em>{categoryMeta[getWorkCategory(work)]?.label || getWorkCategory(work)}</em>
-                  <button className="icon-button danger" title="Hazır iş kalemini kaldır" onClick={() => onDeleteGlobalWorkItem(work.key)}>
-                    <X size={15} />
-                  </button>
-                </span>
+                      <span className="ready-work-edit-row" key={work.key}>
+                        <input
+                          aria-label={`${work.label} iş kalemi adı`}
+                          key={`${work.key}-${work.label}`}
+                          defaultValue={work.label}
+                          onBlur={(event) => onUpdateGlobalWorkItem(work.key, { label: event.target.value })}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") event.currentTarget.blur();
+                          }}
+                        />
+                        <WorkCategorySelect
+                          categoryMeta={categoryMeta}
+                          value={getWorkCategory(work)}
+                          onChange={(category) => onUpdateGlobalWorkItem(work.key, { category })}
+                        />
+                        <button
+                          className="icon-button danger"
+                          type="button"
+                          title="Hazır iş kalemini sil"
+                          onClick={() => onDeleteGlobalWorkItem(work.key)}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </span>
                     ))}
                   </div>
                 </details>
