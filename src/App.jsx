@@ -29,9 +29,6 @@ import seedData from "./data/siteData.json";
 
 const SiteMapPanel = React.lazy(() => import("./components/SiteMapPanel.jsx"));
 
-/** @typedef {[number, number]} MapCoordinate */
-/** @typedef {{ coordinates?: MapCoordinate[] }} BuildingMapData */
-
 const APP_TITLE = "5. Zırhlı Tugayı Mekanik İşleri Proje Takibi";
 const STORAGE_KEY = "tugay-santiye-state-v14";
 const SESSION_KEY = "tugay-santiye-current-user";

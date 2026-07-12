@@ -67,7 +67,9 @@ function HiddenDrawControl({ imageHeight, requestId, onCreated }) {
   return (
     <FeatureGroup>
       <EditControl
-        ref={controlRef}
+        onMounted={(control) => {
+          controlRef.current = control;
+        }}
         position="topright"
         onCreated={(event) => {
           const latLngs = event.layer.getLatLngs()?.[0] || [];
@@ -228,7 +230,7 @@ export default function SiteMapPanel({
           bounds={bounds}
           minZoom={-6}
           maxZoom={8}
-          zoomSnap={0.25}
+          zoomSnap={0}
           zoomDelta={0.5}
           scrollWheelZoom
           wheelDebounceTime={24}
