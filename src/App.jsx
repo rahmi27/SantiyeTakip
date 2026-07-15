@@ -329,7 +329,7 @@ function sanitizeThemeSettings(settings) {
       const palette = Object.fromEntries(
         Object.entries(defaults).map(([key, value]) => [key, safeColor(source[mode]?.[key], value)]),
       );
-      return [mode, isUsableThemePalette(palette, mode) ? palette : { ...defaults }];
+      return [mode, palette];
     }),
   );
 }
@@ -773,20 +773,24 @@ function App() {
       const historyLabel = getHistoryLabel(previous, draft);
       draft.logs = (draft.logs || []).filter(isSessionLog);
       if (currentUser?.role === "admin" && historyLabel) {
-        undoHistoryRef.current = [
-          ...undoHistoryRef.current.slice(-19),
-          {
-            id: `HIST-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            label: historyLabel,
-            at: new Date().toISOString(),
-            before: previous,
-            after: draft,
-          },
-        ];
-        redoHistoryRef.current = [];
-        setUndoCount(undoHistoryRef.current.length);
-        setRedoCount(0);
-        setHistoryStatus(historyLabel);
+        const latestHistory = undoHistoryRef.current[undoHistoryRef.current.length - 1];
+        const isStrictModeReplay = latestHistory?.label === historyLabel && latestHistory?.before === previous;
+        if (!isStrictModeReplay) {
+          undoHistoryRef.current = [
+            ...undoHistoryRef.current.slice(-19),
+            {
+              id: `HIST-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+              label: historyLabel,
+              at: new Date().toISOString(),
+              before: previous,
+              after: draft,
+            },
+          ];
+          redoHistoryRef.current = [];
+          setUndoCount(undoHistoryRef.current.length);
+          setRedoCount(0);
+          setHistoryStatus(historyLabel);
+        }
       }
       return draft;
     });

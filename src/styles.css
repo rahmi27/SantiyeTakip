@@ -734,8 +734,16 @@ img {
   display: none;
 }
 
-.site-leaflet-map[data-label-scale="far"] .building-map-label::after {
+.site-leaflet-map[data-label-scale="far"] .building-map-label strong {
   display: block;
+  font-size: 6px;
+  line-height: 1;
+  color: #0f172a;
+  text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+}
+
+.site-leaflet-map[data-label-scale="far"] .building-map-label::after {
+  display: none;
 }
 
 .site-leaflet-map[data-label-scale="compact"] .building-map-label {
@@ -786,7 +794,7 @@ img {
 
 .leaflet-history-menu {
   position: absolute;
-  z-index: 1000;
+  z-index: 5200;
   top: calc(100% + 7px);
   right: 0;
   display: grid;
@@ -826,7 +834,7 @@ img {
 
 .map-match-backdrop {
   position: absolute;
-  z-index: 1200;
+  z-index: 5400;
   inset: 0;
   display: grid;
   place-items: center;

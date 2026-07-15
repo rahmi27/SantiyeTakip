@@ -152,6 +152,7 @@ function MapLabelScale() {
 function HiddenDrawControl({ imageHeight, request, onCreated }) {
   const map = useMap();
   const controlRef = useRef(null);
+  const rectangleDrawShapeRef = useRef(null);
 
   useEffect(() => {
     if (!request?.id) return;
@@ -182,7 +183,7 @@ function HiddenDrawControl({ imageHeight, request, onCreated }) {
           this._currentLatLng = latLng;
           this._updateTooltip(latLng);
           this._updateGuide(snappedPoint);
-          this._mouseMarker.setLatLng(rawLatLng);
+          this._mouseMarker.setLatLng(latLng);
           L.DomEvent.preventDefault(event.originalEvent);
         };
         polygonHandler.__orthogonalPatched = true;
@@ -192,7 +193,8 @@ function HiddenDrawControl({ imageHeight, request, onCreated }) {
     }
 
     if ((request.mode === "rectangle" || request.mode === "square") && rectangleHandler) {
-      const originalDrawShape = L.Draw.Rectangle.prototype._drawShape;
+      const originalDrawShape = rectangleDrawShapeRef.current || rectangleHandler._drawShape || L.Draw.Rectangle.prototype._drawShape;
+      rectangleDrawShapeRef.current = originalDrawShape;
       rectangleHandler._drawShape =
         request.mode === "square"
           ? function drawSquare(latLng) {
@@ -205,7 +207,9 @@ function HiddenDrawControl({ imageHeight, request, onCreated }) {
               );
               originalDrawShape.call(this, this._map.layerPointToLatLng(squarePoint));
             }
-          : originalDrawShape;
+          : function drawRectangle(latLng) {
+              originalDrawShape.call(this, latLng);
+            };
       rectangleHandler.enable();
       return;
     }
