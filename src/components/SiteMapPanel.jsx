@@ -7,7 +7,7 @@ import "leaflet/dist/leaflet.css";
 import "leaflet-draw/dist/leaflet.draw.css";
 
 const MAX_RELATIVE_ZOOM = 24;
-const MIN_DRAW_SEGMENT_PX = 8;
+const MIN_DRAW_SEGMENT_PX = 4;
 
 function styleDrawingVertices(markers) {
   markers?.forEach((marker, index) => {
@@ -42,7 +42,7 @@ function snapToDrawingBasis(map, markers, rawLatLng) {
   return map.layerPointToLatLng(snapped);
 }
 
-function orthogonalizeCoordinates(coordinates) {
+function completeOrthogonalClosure(coordinates) {
   if (coordinates.length < 3) return coordinates;
   const [first, second] = coordinates;
   const baseX = second[0] - first[0];
@@ -51,18 +51,9 @@ function orthogonalizeCoordinates(coordinates) {
   if (baseLength < 0.001) return coordinates;
   const parallel = { x: baseX / baseLength, y: baseY / baseLength };
   const perpendicular = { x: -parallel.y, y: parallel.x };
-  const result = [first, second];
-
-  coordinates.slice(2).forEach(([x, y]) => {
-    const [previousX, previousY] = result[result.length - 1];
-    const dx = x - previousX;
-    const dy = y - previousY;
-    const parallelLength = dx * parallel.x + dy * parallel.y;
-    const perpendicularLength = dx * perpendicular.x + dy * perpendicular.y;
-    const axis = Math.abs(parallelLength) >= Math.abs(perpendicularLength) ? parallel : perpendicular;
-    const distance = Math.abs(parallelLength) >= Math.abs(perpendicularLength) ? parallelLength : perpendicularLength;
-    result.push([previousX + axis.x * distance, previousY + axis.y * distance]);
-  });
+  // Drawing vertices are already snapped while clicking. Preserve them exactly so
+  // finishing the polygon cannot move a point away from the cursor position.
+  const result = coordinates.map(([x, y]) => [x, y]);
 
   const [lastX, lastY] = result[result.length - 1];
   const closureX = first[0] - lastX;
@@ -80,7 +71,7 @@ function orthogonalizeCoordinates(coordinates) {
     const closureDistance = closeParallelFirst ? closureParallel : closurePerpendicular;
     result.push([lastX + closureAxis.x * closureDistance, lastY + closureAxis.y * closureDistance]);
   }
-  return result.map(([x, y]) => [Number(x.toFixed(2)), Number(y.toFixed(2))]);
+  return result.map(([x, y]) => [Number(x.toFixed(3)), Number(y.toFixed(3))]);
 }
 
 function FitImageBounds({ bounds }) {
@@ -229,8 +220,8 @@ function HiddenDrawControl({ imageHeight, request, onCreated }) {
         position="topright"
         onCreated={(event) => {
           const latLngs = event.layer.getLatLngs()?.[0] || [];
-          const coordinates = orthogonalizeCoordinates(
-            latLngs.map(({ lat, lng }) => [Number(lng.toFixed(2)), Number((imageHeight - lat).toFixed(2))]),
+          const coordinates = completeOrthogonalClosure(
+            latLngs.map(({ lat, lng }) => [Number(lng.toFixed(3)), Number((imageHeight - lat).toFixed(3))]),
           );
           event.layer.remove();
           onCreated(coordinates);

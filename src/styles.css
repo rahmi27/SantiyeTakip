@@ -638,25 +638,25 @@ img {
 }
 
 .site-leaflet-map .leaflet-editing-icon.site-draw-vertex {
-  width: 9px !important;
-  height: 9px !important;
-  margin-left: -5px !important;
-  margin-top: -5px !important;
+  width: 6px !important;
+  height: 6px !important;
+  margin-left: -3px !important;
+  margin-top: -3px !important;
   background: #eff6ff !important;
-  border: 2px solid #2563eb !important;
-  border-radius: 2px !important;
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 90%) !important;
+  border: 1px solid #2563eb !important;
+  border-radius: 1px !important;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 80%) !important;
 }
 
 .site-leaflet-map .leaflet-editing-icon.site-draw-first-vertex {
-  width: 16px !important;
-  height: 16px !important;
-  margin-left: -8px !important;
-  margin-top: -8px !important;
+  width: 11px !important;
+  height: 11px !important;
+  margin-left: -6px !important;
+  margin-top: -6px !important;
   background: #ef4444 !important;
-  border: 3px solid #fff !important;
-  border-radius: 3px !important;
-  box-shadow: 0 0 0 2px #991b1b, 0 0 10px rgb(239 68 68 / 70%) !important;
+  border: 2px solid #fff !important;
+  border-radius: 2px !important;
+  box-shadow: 0 0 0 1px #991b1b, 0 0 6px rgb(239 68 68 / 65%) !important;
 }
 
 .site-leaflet-map .leaflet-interactive {
