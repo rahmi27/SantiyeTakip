@@ -354,16 +354,28 @@ function normalizeState(raw) {
     weight: clampPercent(work.weight),
     unit: work.unit || "percent",
   }));
+  const canonicalWorkKeyBySignature = new Map();
+  draft.workItems.forEach((work) => {
+    const signature = getWorkPermissionSignature(work);
+    if (!canonicalWorkKeyBySignature.has(signature)) canonicalWorkKeyBySignature.set(signature, work.key);
+  });
   draft.buildings = (draft.buildings || []).map((building) => {
     const count = Math.max(1, building.works?.length || 1);
-    const works = (building.works || []).map((work) => ({
-      ...work,
-      label: cleanText(work.label),
-      category: getSafeWorkCategory(getWorkCategory(work), categoryMeta),
-      quantity: clampQuantity(work.quantity),
-      weight: clampPercent(work.weight ?? Math.round(100 / count)),
-      unit: work.unit || "percent",
-    }));
+    const works = (building.works || []).map((work) => {
+      const normalizedWork = {
+        ...work,
+        label: cleanText(work.label),
+        category: getSafeWorkCategory(getWorkCategory(work), categoryMeta),
+        quantity: clampQuantity(work.quantity),
+        weight: clampPercent(work.weight ?? Math.round(100 / count)),
+        unit: work.unit || "percent",
+      };
+      const canonicalKey = canonicalWorkKeyBySignature.get(getWorkPermissionSignature(normalizedWork));
+      return {
+        ...normalizedWork,
+        sourceWorkKey: normalizedWork.sourceWorkKey || (canonicalKey !== normalizedWork.key ? canonicalKey : ""),
+      };
+    });
     return {
       ...building,
       name: cleanText(building.name),
@@ -413,7 +425,12 @@ function loadInitialState() {
   try {
     const seed = copySeed();
     const parsed = JSON.parse(saved);
-    const allWorkKeys = seed.workItems.map((work) => work.key);
+    const seedWorkKeys = new Set(seed.workItems.map((work) => work.key));
+    const mergedWorkItems = [
+      ...seed.workItems,
+      ...(parsed.workItems || []).filter((work) => !seedWorkKeys.has(work.key)),
+    ];
+    const allWorkKeys = mergedWorkItems.map((work) => work.key);
     const seedBuildingIds = new Set(seed.buildings.map((building) => building.id));
     const buildingDataChanged = parsed.buildingDataVersion !== seed.buildingDataVersion;
     const users = (parsed.users?.length ? parsed.users : seed.users).map((user) => ({
@@ -429,7 +446,7 @@ function loadInitialState() {
       ...parsed,
       buildingDataVersion: seed.buildingDataVersion,
       buildings: buildingDataChanged ? seed.buildings : mergeSeedBuildings(parsed.buildings || []),
-      workItems: seedData.workItems,
+      workItems: mergedWorkItems,
       users,
       requests: buildingDataChanged
         ? []
@@ -466,8 +483,7 @@ function getWorksProgress(building, works) {
 function getScopedBuildingWorks(user, building) {
   if (!user || !building?.works) return [];
   if (user.role === "admin") return building.works;
-  const allowedWorkKeys = getUserWorkPermissions(user, building.works);
-  return building.works.filter((work) => allowedWorkKeys.includes(work.key) && !isForemanHiddenWork(work));
+  return building.works.filter((work) => hasUserWorkPermission(user, work) && !isForemanHiddenWork(work));
 }
 
 function getScopedBuildingProgress(user, building) {
@@ -555,6 +571,20 @@ function isForemanHiddenWork(work) {
 
 function getWorkCategory(work) {
   return work?.category || workCategoryByKey[work?.key] || "sihhi_tesisat";
+}
+
+function getWorkPermissionSignature(work) {
+  const label = cleanText(work?.label || "")
+    .trim()
+    .toLocaleLowerCase("tr-TR");
+  return `${getWorkCategory(work)}::${label}`;
+}
+
+function hasUserWorkPermission(user, work) {
+  if (!user || !work) return false;
+  if (user.role === "admin") return true;
+  const allowedWorkKeys = user.workPermissions || [];
+  return allowedWorkKeys.includes(work.key) || Boolean(work.sourceWorkKey && allowedWorkKeys.includes(work.sourceWorkKey));
 }
 
 function getSafeWorkCategory(category, categoryMeta = defaultWorkCategoryMeta) {
@@ -943,29 +973,40 @@ function App() {
     updateState((draft) => {
       const building = draft.buildings.find((item) => item.id === buildingId);
       if (!building) return;
+      const sourceWork = payload?.sourceWorkKey
+        ? draft.workItems.find((work) => work.key === payload.sourceWorkKey)
+        : null;
       const keyBase = cleanLabel
         .toLocaleLowerCase("tr-TR")
         .replace(/[^a-z0-9ığüşöç]+/gi, "_")
         .replace(/^_+|_+$/g, "");
-      const key = `${keyBase || "ek_is"}_${Date.now()}`;
+      const key = sourceWork?.key || `${keyBase || "ek_is"}_${Date.now()}`;
+      if (building.works.some((work) => work.key === key || work.sourceWorkKey === key)) return;
+      const category = getSafeWorkCategory(
+        sourceWork?.category || payload?.category,
+        getWorkCategoryMeta(draft.workCategories),
+      );
       building.works.push({
         key,
         label: cleanLabel,
         quantity: clampQuantity(payload?.quantity),
         weight: clampPercent(payload?.weight),
-        category: getSafeWorkCategory(payload?.category, getWorkCategoryMeta(draft.workCategories)),
+        category,
+        sourceWorkKey: sourceWork?.key || "",
         unit: "percent",
       });
       building.progress = building.progress || {};
       building.progress[key] = 0;
       building.updatedAt = new Date().toISOString();
-      draft.workItems.push({
-        key,
-        label: cleanLabel,
-        category: getSafeWorkCategory(payload?.category, getWorkCategoryMeta(draft.workCategories)),
-        weight: clampPercent(payload?.weight),
-        unit: "percent",
-      });
+      if (!sourceWork) {
+        draft.workItems.push({
+          key,
+          label: cleanLabel,
+          category,
+          weight: clampPercent(payload?.weight),
+          unit: "percent",
+        });
+      }
       draft.logs.unshift(makeLog(currentUser, "Ek iş kalemi eklendi", `${building.code} / ${cleanLabel}`));
     });
   }
@@ -1957,15 +1998,14 @@ function BuildingModal({
   const progress = getScopedBuildingProgress(user, building);
   const progressColor = getProgressColor(progress, progressRanges);
   const categoryMeta = getWorkCategoryMeta(workCategories);
-  const allowedWorkKeys = getUserWorkPermissions(user, building.works);
   const visibleWorks =
     user.role === "admin"
       ? building.works
-      : building.works.filter((work) => allowedWorkKeys.includes(work.key) && !isForemanHiddenWork(work));
+      : building.works.filter((work) => hasUserWorkPermission(user, work) && !isForemanHiddenWork(work));
   const categoryProgressItems = getCategoryProgressItems(building, visibleWorks, categoryMeta);
   const requestableWorks = visibleWorks.filter(
     (work) =>
-      allowedWorkKeys.includes(work.key) &&
+      hasUserWorkPermission(user, work) &&
       !isForemanHiddenWork(work) &&
       getWorkAvailableQuantity(building, work, allRequests) > 0,
   );
