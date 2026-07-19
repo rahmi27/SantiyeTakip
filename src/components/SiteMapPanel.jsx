@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
-import { FeatureGroup, ImageOverlay, MapContainer, Polygon, Tooltip, useMap } from "react-leaflet";
+import { CircleMarker, FeatureGroup, ImageOverlay, MapContainer, Polygon, Tooltip, useMap } from "react-leaflet";
 import { EditControl } from "react-leaflet-draw";
 import { Building2, Pentagon, RectangleHorizontal, Redo2, Square, Undo2, X } from "lucide-react";
 import "leaflet/dist/leaflet.css";
@@ -8,6 +8,81 @@ import "leaflet-draw/dist/leaflet.draw.css";
 
 const MAX_RELATIVE_ZOOM = 24;
 const MIN_DRAW_SEGMENT_PX = 4;
+
+function isPointInsidePolygon([x, y], coordinates) {
+  let inside = false;
+  for (let index = 0, previous = coordinates.length - 1; index < coordinates.length; previous = index++) {
+    const [currentX, currentY] = coordinates[index];
+    const [previousX, previousY] = coordinates[previous];
+    const intersects =
+      currentY > y !== previousY > y &&
+      x < ((previousX - currentX) * (y - currentY)) / (previousY - currentY) + currentX;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function getPolygonCentroid(coordinates) {
+  let signedArea = 0;
+  let centroidX = 0;
+  let centroidY = 0;
+  coordinates.forEach(([x, y], index) => {
+    const [nextX, nextY] = coordinates[(index + 1) % coordinates.length];
+    const cross = x * nextY - nextX * y;
+    signedArea += cross;
+    centroidX += (x + nextX) * cross;
+    centroidY += (y + nextY) * cross;
+  });
+  if (Math.abs(signedArea) < 0.000001) return null;
+  return [centroidX / (3 * signedArea), centroidY / (3 * signedArea)];
+}
+
+function getPolygonLabelPoint(coordinates) {
+  const centroid = getPolygonCentroid(coordinates);
+  if (centroid && isPointInsidePolygon(centroid, coordinates)) return centroid;
+
+  const xs = coordinates.map(([x]) => x);
+  const ys = coordinates.map(([, y]) => y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  const boxCenter = [centerX, centerY];
+  if (isPointInsidePolygon(boxCenter, coordinates)) return boxCenter;
+
+  const uniqueYs = [...new Set(ys)].sort((a, b) => a - b);
+  const scanLines = [centerY];
+  for (let index = 0; index < uniqueYs.length - 1; index += 1) {
+    scanLines.push((uniqueYs[index] + uniqueYs[index + 1]) / 2);
+  }
+
+  let bestPoint = null;
+  let bestScore = -Infinity;
+  scanLines.forEach((scanY) => {
+    const intersections = [];
+    coordinates.forEach(([x1, y1], index) => {
+      const [x2, y2] = coordinates[(index + 1) % coordinates.length];
+      if ((y1 > scanY) === (y2 > scanY)) return;
+      intersections.push(x1 + ((scanY - y1) * (x2 - x1)) / (y2 - y1));
+    });
+    intersections.sort((a, b) => a - b);
+    for (let index = 0; index + 1 < intersections.length; index += 2) {
+      const left = intersections[index];
+      const right = intersections[index + 1];
+      const candidate = [(left + right) / 2, scanY];
+      const centerDistance = Math.hypot(candidate[0] - centerX, candidate[1] - centerY);
+      const score = right - left - centerDistance * 0.05;
+      if (score > bestScore && isPointInsidePolygon(candidate, coordinates)) {
+        bestPoint = candidate;
+        bestScore = score;
+      }
+    }
+  });
+
+  return bestPoint || coordinates[0];
+}
 
 function styleDrawingVertices(markers) {
   markers?.forEach((marker, index) => {
@@ -423,27 +498,35 @@ export default function SiteMapPanel({
             const progress = getProgress(building);
             const fillColor = allowed ? getProgressColor(progress, progressRanges) : "#64748b";
             const positions = building.coordinates.map(([x, y]) => [map.height - y, x]);
+            const [labelX, labelY] = getPolygonLabelPoint(building.coordinates);
             return (
-              <Polygon
-                key={building.id}
-                positions={positions}
-                pathOptions={{
-                  color: selectedBuildingId === building.id ? "#111827" : "#6b7280",
-                  fillColor,
-                  fillOpacity: allowed ? 0.32 : 0.07,
-                  opacity: allowed ? 1 : 0.35,
-                  weight: selectedBuildingId === building.id ? 3 : 1.25,
-                }}
-                eventHandlers={{
-                  click: () => allowed && onSelect(building.id),
-                }}
-              >
-                <Tooltip permanent direction="center" className="building-map-label" opacity={1}>
+              <React.Fragment key={building.id}>
+                <Polygon
+                  positions={positions}
+                  pathOptions={{
+                    color: selectedBuildingId === building.id ? "#111827" : "#6b7280",
+                    fillColor,
+                    fillOpacity: allowed ? 0.32 : 0.07,
+                    opacity: allowed ? 1 : 0.35,
+                    weight: selectedBuildingId === building.id ? 3 : 1.25,
+                  }}
+                  eventHandlers={{
+                    click: () => allowed && onSelect(building.id),
+                  }}
+                />
+                <CircleMarker
+                  center={[map.height - labelY, labelX]}
+                  radius={1}
+                  interactive={false}
+                  pathOptions={{ opacity: 0, fillOpacity: 0 }}
+                >
+                  <Tooltip permanent direction="center" className="building-map-label" opacity={1}>
                   <strong>{building.code}</strong>
                   <span>{building.name}</span>
                   <em>%{progress}</em>
-                </Tooltip>
-              </Polygon>
+                  </Tooltip>
+                </CircleMarker>
+              </React.Fragment>
             );
           })}
 

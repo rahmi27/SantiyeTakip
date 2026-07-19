@@ -6,6 +6,7 @@ export interface Bina {
   name: string;
   lineColor: string;
   coordinates: MapCoordinate[];
+  categoryWeights: Record<string, number>;
   progress: Record<string, number>;
 }
 

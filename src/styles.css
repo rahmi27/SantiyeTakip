@@ -543,7 +543,7 @@ img {
   margin: 10px 0 4px;
 }
 
-.category-progress-grid div {
+.category-progress-grid > div {
   display: grid;
   gap: 5px;
   min-width: 0;
@@ -553,18 +553,39 @@ img {
   border-radius: 8px;
 }
 
-.category-progress-grid span {
+.category-progress-grid > div > span {
   color: var(--text-soft);
   font-size: 12px;
 }
 
-.category-progress-grid strong {
+.category-progress-grid > div > strong {
   color: var(--ink);
   font-size: 18px;
 }
 
 .category-progress-grid.admin {
   margin: 0 0 12px;
+}
+
+.category-weight-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 3px;
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.category-weight-field input,
+.progress-number-field input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 8px;
+  color: var(--ink);
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 7px;
 }
 
 .map-section {
@@ -713,7 +734,7 @@ img {
 .building-map-label span {
   overflow-wrap: anywhere;
   color: #111827;
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 700;
   line-height: 1.15;
   text-shadow: -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
@@ -768,7 +789,7 @@ img {
 }
 
 .site-leaflet-map[data-label-scale="detail"] .building-map-label span {
-  font-size: 6px;
+  font-size: 7px;
 }
 
 .site-leaflet-map[data-label-scale="detail"] .building-map-label em {
@@ -1637,6 +1658,15 @@ img {
   align-self: end;
 }
 
+.progress-number-field {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  align-self: end;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
 .work-panel .admin-work-edit .icon-button {
   align-self: end;
 }
@@ -2396,7 +2426,7 @@ img {
 
 .building-admin-work-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 104px 104px minmax(180px, 260px) 48px auto;
+  grid-template-columns: minmax(220px, 1fr) 104px 104px 104px auto;
   gap: 12px;
   align-items: center;
   padding: 12px;

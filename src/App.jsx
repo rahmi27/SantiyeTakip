@@ -376,12 +376,19 @@ function normalizeState(raw) {
         sourceWorkKey: normalizedWork.sourceWorkKey || (canonicalKey !== normalizedWork.key ? canonicalKey : ""),
       };
     });
+    const categoryWeights = Object.fromEntries(
+      groupWorksByCategory(works, categoryMeta).map((category) => [
+        category.key,
+        getBuildingCategoryWeight(building, category.key, category.items),
+      ]),
+    );
     return {
       ...building,
       name: cleanText(building.name),
       lineColor: cleanText(building.lineColor),
       coordinates: sanitizeBuildingCoordinates(building.coordinates, draft.map),
       works,
+      categoryWeights,
       progress: building.progress || Object.fromEntries(works.map((work) => [work.key, 0])),
       files: building.files || [],
     };
@@ -410,6 +417,7 @@ function mergeSeedBuildings(savedBuildings = []) {
       lineColor: saved.lineColor || seedBuilding.lineColor,
       quantity: saved.quantity || seedBuilding.quantity,
       works,
+      categoryWeights: saved.categoryWeights || seedBuilding.categoryWeights || {},
       progress: Object.fromEntries(
         workKeys.map((key) => [key, clampPercent(saved.progress?.[key] ?? seedBuilding.progress?.[key] ?? 0)]),
       ),
@@ -466,17 +474,49 @@ function clampPercent(value) {
 
 function getBuildingProgress(building) {
   if (!building?.works?.length) return 0;
-  return getWorksProgress(building, building.works);
+  return getCategorizedBuildingProgress(building, building.works);
 }
 
 function getWorksProgress(building, works) {
   if (!building || !works?.length) return 0;
   const fallbackWeight = 100 / works.length;
-  const totalWeight = works.reduce((sum, work) => sum + Number(work.weight || fallbackWeight), 0);
-  const total = works.reduce((sum, work) => {
-    const weight = Number(work.weight || fallbackWeight);
-    return sum + Number(building.progress?.[work.key] || 0) * (weight / Math.max(1, totalWeight));
+  const weights = works.map((work) => {
+    const weight = Number(work.weight);
+    return Number.isFinite(weight) && weight >= 0 ? weight : fallbackWeight;
+  });
+  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+  const normalizedWeights = weightTotal > 0 ? weights : works.map(() => 1);
+  const normalizedTotal = normalizedWeights.reduce((sum, weight) => sum + weight, 0);
+  const total = works.reduce(
+    (sum, work, index) =>
+      sum + Number(building.progress?.[work.key] || 0) * (normalizedWeights[index] / normalizedTotal),
+    0,
+  );
+  return clampPercent(total);
+}
+
+function getBuildingCategoryWeight(building, categoryKey, works = []) {
+  const savedWeight = Number(building?.categoryWeights?.[categoryKey]);
+  if (Number.isFinite(savedWeight)) return clampPercent(savedWeight);
+  const workWeightTotal = works.reduce((sum, work) => {
+    const weight = Number(work.weight);
+    return sum + (Number.isFinite(weight) && weight > 0 ? weight : 0);
   }, 0);
+  return clampPercent(workWeightTotal || 100);
+}
+
+function getCategorizedBuildingProgress(building, works) {
+  if (!building || !works?.length) return 0;
+  const categories = groupWorksByCategory(works);
+  const weights = categories.map((category) => getBuildingCategoryWeight(building, category.key, category.items));
+  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+  const normalizedWeights = weightTotal > 0 ? weights : categories.map(() => 1);
+  const normalizedTotal = normalizedWeights.reduce((sum, weight) => sum + weight, 0);
+  const total = categories.reduce(
+    (sum, category, index) =>
+      sum + getWorksProgress(building, category.items) * (normalizedWeights[index] / normalizedTotal),
+    0,
+  );
   return clampPercent(total);
 }
 
@@ -487,7 +527,7 @@ function getScopedBuildingWorks(user, building) {
 }
 
 function getScopedBuildingProgress(user, building) {
-  return getWorksProgress(building, getScopedBuildingWorks(user, building));
+  return getCategorizedBuildingProgress(building, getScopedBuildingWorks(user, building));
 }
 
 function getProgressColor(progress, ranges) {
@@ -679,7 +719,7 @@ function getCategoryProgressItems(building, works, categoryMeta = defaultWorkCat
   return groupWorksByCategory(works, categoryMeta).map((category) => ({
     ...category,
     progress: getWorksProgress(building, category.items),
-    weight: category.items.reduce((sum, work) => sum + Number(work.weight || 0), 0),
+    weight: getBuildingCategoryWeight(building, category.key, category.items),
   }));
 }
 
@@ -952,6 +992,28 @@ function App() {
     });
   }
 
+  function setCategoryWeight(buildingId, categoryKey, value) {
+    updateState((draft) => {
+      const building = draft.buildings.find((item) => item.id === buildingId);
+      if (!building) return;
+      const categoryMeta = getWorkCategoryMeta(draft.workCategories);
+      const categoryWorks = building.works.filter((work) => getWorkCategory(work) === categoryKey);
+      if (!categoryWorks.length) return;
+      const previousWeight = getBuildingCategoryWeight(building, categoryKey, categoryWorks);
+      const nextWeight = clampPercent(value);
+      building.categoryWeights = building.categoryWeights || {};
+      building.categoryWeights[categoryKey] = nextWeight;
+      building.updatedAt = new Date().toISOString();
+      draft.logs.unshift(
+        makeLog(
+          currentUser,
+          "Kategori ağırlığı değişti",
+          `${building.code} · ${categoryMeta[categoryKey]?.label || categoryKey}: %${previousWeight} → %${nextWeight}`,
+        ),
+      );
+    });
+  }
+
   function updateWorkLabel(buildingId, workKey, label) {
     updateState((draft) => {
       const building = draft.buildings.find((item) => item.id === buildingId);
@@ -1152,6 +1214,12 @@ function App() {
       if (!building || !work) return;
       building.works = building.works.filter((item) => item.key !== workKey);
       if (building.progress) delete building.progress[workKey];
+      if (
+        building.categoryWeights &&
+        !building.works.some((buildingWork) => getWorkCategory(buildingWork) === getWorkCategory(work))
+      ) {
+        delete building.categoryWeights[getWorkCategory(work)];
+      }
       building.updatedAt = new Date().toISOString();
       const stillUsed = draft.buildings.some((item) => item.works.some((buildingWork) => buildingWork.key === workKey));
       if (!stillUsed) {
@@ -1701,6 +1769,7 @@ function App() {
           onSetWorkProgress={setWorkProgress}
           onSetWorkQuantity={setWorkQuantity}
           onSetWorkWeight={setWorkWeight}
+          onSetCategoryWeight={setCategoryWeight}
           onUpdateBuilding={updateBuilding}
           onDeleteBuilding={deleteBuilding}
           onUpdateWorkLabel={updateWorkLabel}
@@ -1758,6 +1827,7 @@ function App() {
           onSetWorkProgress={setWorkProgress}
           onSetWorkQuantity={setWorkQuantity}
           onSetWorkWeight={setWorkWeight}
+          onSetCategoryWeight={setCategoryWeight}
           onUpdateBuilding={updateBuilding}
           onDeleteBuilding={deleteBuilding}
           onUpdateWorkLabel={updateWorkLabel}
@@ -1967,6 +2037,7 @@ function BuildingModal({
   onSetWorkProgress,
   onSetWorkQuantity,
   onSetWorkWeight,
+  onSetCategoryWeight,
   onUpdateBuilding,
   onDeleteBuilding,
   onUpdateWorkLabel,
@@ -2173,6 +2244,19 @@ function BuildingModal({
                   <div className="mini-progress">
                     <i style={{ width: `${category.progress}%`, background: getProgressColor(category.progress, progressRanges) }} />
                   </div>
+                  {user.role === "admin" && (
+                    <label className="category-weight-field">
+                      <span>Kategori ağırlığı %</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={category.weight}
+                        onChange={(event) => onSetCategoryWeight(building.id, category.key, event.target.value)}
+                      />
+                    </label>
+                  )}
                 </div>
               ))}
             </div>
@@ -2226,15 +2310,16 @@ function BuildingModal({
                             onChange={(event) => onSetWorkWeight(building.id, work.key, event.target.value)}
                           />
                         </label>
-                        <label className="range-line">
+                        <label className="progress-number-field">
+                          İlerleme %
                           <input
-                            type="range"
+                            type="number"
                             min="0"
                             max="100"
+                            step="1"
                             value={value}
                             onChange={(event) => onSetWorkProgress(building.id, work.key, event.target.value)}
                           />
-                          <b>{value}%</b>
                         </label>
                         <button
                           className="icon-button danger"
@@ -2887,6 +2972,7 @@ function BuildingsPanel({
   onSetWorkProgress,
   onSetWorkQuantity,
   onSetWorkWeight,
+  onSetCategoryWeight,
   onUpdateBuilding,
   onDeleteBuilding,
   onUpdateWorkLabel,
@@ -3004,6 +3090,17 @@ function BuildingsPanel({
                 <div className="mini-progress">
                   <i style={{ width: `${category.progress}%` }} />
                 </div>
+                <label className="category-weight-field">
+                  <span>Kategori ağırlığı %</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={category.weight}
+                    onChange={(event) => onSetCategoryWeight(selectedBuilding.id, category.key, event.target.value)}
+                  />
+                </label>
               </div>
             ))}
           </div>
@@ -3114,16 +3211,16 @@ function BuildingsPanel({
                     />
                   </label>
                   <label>
-                    Yüzde
+                    İlerleme %
                     <input
-                      type="range"
+                      type="number"
                       min="0"
                       max="100"
+                      step="1"
                       value={value}
                       onChange={(event) => onSetWorkProgress(selectedBuilding.id, work.key, event.target.value)}
                     />
                   </label>
-                  <b>{value}%</b>
                   <button
                     className="icon-button danger"
                     title="İşi sil"
