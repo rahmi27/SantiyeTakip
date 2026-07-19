@@ -579,8 +579,10 @@ function WorkCategorySelect({ value, onChange, categoryMeta = defaultWorkCategor
   );
 }
 
-function ReadyWorkSelect({ workItems, value, onChange }) {
-  const readyItems = (workItems || []).filter((work) => !isForemanHiddenWork(work));
+function ReadyWorkSelect({ workItems, value, onChange, category = "" }) {
+  const readyItems = (workItems || []).filter(
+    (work) => !isForemanHiddenWork(work) && (!category || getWorkCategory(work) === category),
+  );
   return (
     <select
       className="ready-work-select"
@@ -2217,46 +2219,64 @@ function BuildingModal({
             </div>
             {user.role === "admin" && (
               <form
-                className="add-work-form"
+                className="add-work-form structured-add-work-form"
                 onSubmit={(event) => {
                   event.preventDefault();
                   onAddBuildingWork(building.id, newWork);
                   setNewWork(initialNewWork);
                 }}
               >
-                <ReadyWorkSelect
-                  workItems={workItems}
-                  value={newWork.sourceWorkKey}
-                  onChange={(workKey) => setNewWork((previous) => makeNewWorkFromReady(previous, workItems, workKey))}
-                />
-                <input
-                  value={newWork.label}
-                  onChange={(event) => setNewWork((previous) => ({ ...previous, label: event.target.value }))}
-                  placeholder="Ek iş kalemi adı"
-                />
-                <input
-                  type="number"
-                  min="0"
-                  value={newWork.quantity}
-                  onChange={(event) => setNewWork((previous) => ({ ...previous, quantity: event.target.value }))}
-                  placeholder="Limit %"
-                />
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={newWork.weight}
-                  onChange={(event) => setNewWork((previous) => ({ ...previous, weight: event.target.value }))}
-                  placeholder="Pay %"
-                />
-                <WorkCategorySelect
-                  categoryMeta={categoryMeta}
-                  value={newWork.category}
-                  onChange={(category) => setNewWork((previous) => ({ ...previous, category }))}
-                />
-                <button className="secondary-action" type="submit">
+                <label className="add-work-category-field">
+                  <span>Kategori</span>
+                  <WorkCategorySelect
+                    categoryMeta={categoryMeta}
+                    value={newWork.category}
+                    onChange={(category) =>
+                      setNewWork((previous) => ({ ...previous, category, sourceWorkKey: "" }))
+                    }
+                  />
+                </label>
+                <label className="add-work-ready-field">
+                  <span>Hazır iş</span>
+                  <ReadyWorkSelect
+                    workItems={workItems}
+                    category={newWork.category}
+                    value={newWork.sourceWorkKey}
+                    onChange={(workKey) => setNewWork((previous) => makeNewWorkFromReady(previous, workItems, workKey))}
+                  />
+                </label>
+                <label className="add-work-quantity-field">
+                  <span>Talep limiti %</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={newWork.quantity}
+                    onChange={(event) => setNewWork((previous) => ({ ...previous, quantity: event.target.value }))}
+                    placeholder="Limit %"
+                  />
+                </label>
+                <label className="add-work-weight-field">
+                  <span>Hakediş payı %</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={newWork.weight}
+                    onChange={(event) => setNewWork((previous) => ({ ...previous, weight: event.target.value }))}
+                    placeholder="Pay %"
+                  />
+                </label>
+                <label className="add-work-name-field">
+                  <span>Yeni iş kalemi</span>
+                  <input
+                    value={newWork.label}
+                    onChange={(event) => setNewWork((previous) => ({ ...previous, label: event.target.value }))}
+                    placeholder="Elle girilen iş"
+                  />
+                </label>
+                <button className="secondary-action add-work-submit" type="submit">
                   <Plus size={16} />
-                  Ekle
+                  İş ekle
                 </button>
               </form>
             )}
@@ -2949,46 +2969,64 @@ function BuildingsPanel({
           </div>
 
           <form
-            className="add-work-form"
+            className="add-work-form structured-add-work-form"
             onSubmit={(event) => {
               event.preventDefault();
                   onAddBuildingWork(selectedBuilding.id, newWork);
                   setNewWork(initialNewWork);
                 }}
               >
-            <ReadyWorkSelect
-              workItems={workItems}
-              value={newWork.sourceWorkKey}
-              onChange={(workKey) => setNewWork((previous) => makeNewWorkFromReady(previous, workItems, workKey))}
-            />
-            <input
-              value={newWork.label}
-              onChange={(event) => setNewWork((previous) => ({ ...previous, label: event.target.value }))}
-              placeholder="Ek iş kalemi adı"
-            />
-            <input
-              type="number"
-              min="0"
-              value={newWork.quantity}
-              onChange={(event) => setNewWork((previous) => ({ ...previous, quantity: event.target.value }))}
-              placeholder="Limit %"
-            />
-            <input
-              type="number"
-              min="0"
-              max="100"
-              value={newWork.weight}
-              onChange={(event) => setNewWork((previous) => ({ ...previous, weight: event.target.value }))}
-              placeholder="Pay %"
-            />
-            <WorkCategorySelect
-              categoryMeta={categoryMeta}
-              value={newWork.category}
-              onChange={(category) => setNewWork((previous) => ({ ...previous, category }))}
-            />
-            <button className="secondary-action" type="submit">
+            <label className="add-work-category-field">
+              <span>Kategori</span>
+              <WorkCategorySelect
+                categoryMeta={categoryMeta}
+                value={newWork.category}
+                onChange={(category) =>
+                  setNewWork((previous) => ({ ...previous, category, sourceWorkKey: "" }))
+                }
+              />
+            </label>
+            <label className="add-work-ready-field">
+              <span>Hazır iş</span>
+              <ReadyWorkSelect
+                workItems={workItems}
+                category={newWork.category}
+                value={newWork.sourceWorkKey}
+                onChange={(workKey) => setNewWork((previous) => makeNewWorkFromReady(previous, workItems, workKey))}
+              />
+            </label>
+            <label className="add-work-quantity-field">
+              <span>Talep limiti %</span>
+              <input
+                type="number"
+                min="0"
+                value={newWork.quantity}
+                onChange={(event) => setNewWork((previous) => ({ ...previous, quantity: event.target.value }))}
+                placeholder="Limit %"
+              />
+            </label>
+            <label className="add-work-weight-field">
+              <span>Hakediş payı %</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={newWork.weight}
+                onChange={(event) => setNewWork((previous) => ({ ...previous, weight: event.target.value }))}
+                placeholder="Pay %"
+              />
+            </label>
+            <label className="add-work-name-field">
+              <span>Yeni iş kalemi</span>
+              <input
+                value={newWork.label}
+                onChange={(event) => setNewWork((previous) => ({ ...previous, label: event.target.value }))}
+                placeholder="Elle girilen iş"
+              />
+            </label>
+            <button className="secondary-action add-work-submit" type="submit">
               <Plus size={16} />
-              Ekle
+              İş ekle
             </button>
           </form>
 

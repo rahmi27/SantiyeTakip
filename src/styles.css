@@ -1247,9 +1247,9 @@ img {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  width: min(1120px, 100%);
-  height: min(860px, 92vh);
-  max-height: min(860px, 92vh);
+  width: min(1480px, 100%);
+  height: min(920px, 94vh);
+  max-height: min(920px, 94vh);
   background: var(--panel);
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 8px;
@@ -1282,7 +1282,7 @@ img {
 .modal-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(380px, 1.1fr);
+  grid-template-columns: minmax(0, 1.65fr) minmax(340px, 0.8fr);
   gap: 12px;
   min-height: 0;
   min-width: 0;
@@ -1733,6 +1733,58 @@ img {
   grid-column: 1 / -1;
   justify-self: end;
   min-width: 118px;
+}
+
+.structured-add-work-form,
+.work-panel .structured-add-work-form {
+  grid-template-columns: minmax(220px, 1fr) minmax(100px, 0.35fr) minmax(100px, 0.35fr) 132px;
+  gap: 9px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel-strong));
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+  border-radius: 8px;
+}
+
+.structured-add-work-form label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.structured-add-work-form label > span {
+  min-height: 15px;
+  font-weight: 700;
+}
+
+.structured-add-work-form .add-work-category-field {
+  grid-column: 1 / -1;
+}
+
+.structured-add-work-form .add-work-ready-field {
+  grid-column: 1 / 3;
+}
+
+.structured-add-work-form .add-work-quantity-field {
+  grid-column: 3;
+}
+
+.structured-add-work-form .add-work-weight-field {
+  grid-column: 4;
+}
+
+.structured-add-work-form .add-work-name-field {
+  grid-column: 1 / 4;
+}
+
+.structured-add-work-form .add-work-submit,
+.work-panel .structured-add-work-form .add-work-submit {
+  grid-column: 4;
+  align-self: end;
+  justify-self: stretch;
+  min-width: 0;
+  min-height: 36px;
 }
 
 .secondary-details {
@@ -2239,6 +2291,50 @@ img {
   border-radius: 8px;
 }
 
+.building-admin-detail .category-progress-grid.admin > div,
+.building-admin-work-list .building-work-category {
+  --category-tone: #2563eb;
+  background: color-mix(in srgb, var(--category-tone) 10%, var(--panel-strong));
+  border-color: color-mix(in srgb, var(--category-tone) 42%, var(--line));
+}
+
+.building-admin-detail .category-progress-grid.admin > div:nth-child(5n + 2),
+.building-admin-work-list .building-work-category:nth-child(5n + 2) {
+  --category-tone: #0891b2;
+}
+
+.building-admin-detail .category-progress-grid.admin > div:nth-child(5n + 3),
+.building-admin-work-list .building-work-category:nth-child(5n + 3) {
+  --category-tone: #ca8a04;
+}
+
+.building-admin-detail .category-progress-grid.admin > div:nth-child(5n + 4),
+.building-admin-work-list .building-work-category:nth-child(5n + 4) {
+  --category-tone: #7c3aed;
+}
+
+.building-admin-detail .category-progress-grid.admin > div:nth-child(5n + 5),
+.building-admin-work-list .building-work-category:nth-child(5n + 5) {
+  --category-tone: #dc2626;
+}
+
+.building-admin-detail .category-progress-grid.admin > div .mini-progress i {
+  background: var(--category-tone);
+}
+
+.building-admin-work-list .building-work-category > summary {
+  min-height: 40px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--category-tone) 14%, var(--panel-strong));
+  border: 1px solid color-mix(in srgb, var(--category-tone) 34%, var(--line));
+  border-radius: 7px;
+}
+
+.building-admin-work-list .building-work-category > summary b,
+.building-admin-work-list .building-work-category > summary svg {
+  color: color-mix(in srgb, var(--category-tone) 84%, var(--ink));
+}
+
 .building-work-category summary,
 .category-work-section summary {
   display: grid;
@@ -2732,5 +2828,30 @@ img {
 
   .work-checks {
     grid-template-columns: 1fr;
+  }
+
+  .structured-add-work-form,
+  .work-panel .structured-add-work-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .structured-add-work-form .add-work-category-field,
+  .structured-add-work-form .add-work-ready-field,
+  .structured-add-work-form .add-work-quantity-field,
+  .structured-add-work-form .add-work-weight-field,
+  .structured-add-work-form .add-work-name-field,
+  .structured-add-work-form .add-work-submit,
+  .work-panel .structured-add-work-form .add-work-category-field,
+  .work-panel .structured-add-work-form .add-work-ready-field,
+  .work-panel .structured-add-work-form .add-work-quantity-field,
+  .work-panel .structured-add-work-form .add-work-weight-field,
+  .work-panel .structured-add-work-form .add-work-name-field,
+  .work-panel .structured-add-work-form .add-work-submit {
+    grid-column: 1;
+  }
+
+  .structured-add-work-form .add-work-submit,
+  .work-panel .structured-add-work-form .add-work-submit {
+    width: 100%;
   }
 }
