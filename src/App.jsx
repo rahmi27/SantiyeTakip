@@ -1412,7 +1412,6 @@ function App() {
         makeLog(currentUser, "Harita bina eşleşmesi kaydedildi", `${building.code} · ${sanitized.length} köşe`),
       );
     });
-    setSelectedBuildingId(buildingId);
   }
 
   function removeBuildingCoordinates(buildingId) {

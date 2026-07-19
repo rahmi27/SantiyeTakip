@@ -179,12 +179,20 @@ function FitImageBounds({ bounds }) {
 
 function FocusBuilding({ building, imageHeight }) {
   const map = useMap();
+  const focusedBuildingIdRef = useRef(null);
 
   useEffect(() => {
-    if (!building?.coordinates?.length) return;
+    const buildingId = building?.id || null;
+    if (!buildingId) {
+      focusedBuildingIdRef.current = null;
+      return;
+    }
+    if (focusedBuildingIdRef.current === buildingId) return;
+    focusedBuildingIdRef.current = buildingId;
+    if (!building.coordinates?.length) return;
     const positions = building.coordinates.map(([x, y]) => [imageHeight - y, x]);
     map.flyToBounds(positions, { animate: true, duration: 0.35, padding: [70, 70], maxZoom: map.getMaxZoom() - 1 });
-  }, [building, imageHeight, map]);
+  }, [building?.id, imageHeight, map]);
 
   return null;
 }
