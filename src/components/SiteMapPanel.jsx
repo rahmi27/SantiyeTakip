@@ -8,9 +8,11 @@ import "leaflet-draw/dist/leaflet.draw.css";
 
 const MAX_RELATIVE_ZOOM = 24;
 const MIN_DRAW_SEGMENT_PX = 4;
+const polygonLabelPointCache = new Map();
 
-function isPointInsidePolygon([x, y], coordinates) {
+function getPointToPolygonDistance([x, y], coordinates) {
   let inside = false;
+  let minDistanceSquared = Infinity;
   for (let index = 0, previous = coordinates.length - 1; index < coordinates.length; previous = index++) {
     const [currentX, currentY] = coordinates[index];
     const [previousX, previousY] = coordinates[previous];
@@ -18,11 +20,36 @@ function isPointInsidePolygon([x, y], coordinates) {
       currentY > y !== previousY > y &&
       x < ((previousX - currentX) * (y - currentY)) / (previousY - currentY) + currentX;
     if (intersects) inside = !inside;
+    let edgeX = previousX;
+    let edgeY = previousY;
+    const segmentX = currentX - previousX;
+    const segmentY = currentY - previousY;
+    if (segmentX !== 0 || segmentY !== 0) {
+      const projection = Math.max(
+        0,
+        Math.min(1, ((x - previousX) * segmentX + (y - previousY) * segmentY) / (segmentX ** 2 + segmentY ** 2)),
+      );
+      edgeX += segmentX * projection;
+      edgeY += segmentY * projection;
+    }
+    minDistanceSquared = Math.min(minDistanceSquared, (x - edgeX) ** 2 + (y - edgeY) ** 2);
   }
-  return inside;
+  const distance = Math.sqrt(minDistanceSquared);
+  return inside ? distance : -distance;
 }
 
-function getPolygonCentroid(coordinates) {
+function makeLabelCell(x, y, halfSize, coordinates) {
+  const distance = getPointToPolygonDistance([x, y], coordinates);
+  return {
+    x,
+    y,
+    halfSize,
+    distance,
+    potential: distance + halfSize * Math.SQRT2,
+  };
+}
+
+function getPolygonCentroidCell(coordinates) {
   let signedArea = 0;
   let centroidX = 0;
   let centroidY = 0;
@@ -33,55 +60,56 @@ function getPolygonCentroid(coordinates) {
     centroidX += (x + nextX) * cross;
     centroidY += (y + nextY) * cross;
   });
-  if (Math.abs(signedArea) < 0.000001) return null;
-  return [centroidX / (3 * signedArea), centroidY / (3 * signedArea)];
+  if (Math.abs(signedArea) < 0.000001) return makeLabelCell(coordinates[0][0], coordinates[0][1], 0, coordinates);
+  return makeLabelCell(centroidX / (3 * signedArea), centroidY / (3 * signedArea), 0, coordinates);
 }
 
 function getPolygonLabelPoint(coordinates) {
-  const centroid = getPolygonCentroid(coordinates);
-  if (centroid && isPointInsidePolygon(centroid, coordinates)) return centroid;
-
+  const cacheKey = coordinates.map(([x, y]) => `${x},${y}`).join(";");
+  const cached = polygonLabelPointCache.get(cacheKey);
+  if (cached) return cached;
   const xs = coordinates.map(([x]) => x);
   const ys = coordinates.map(([, y]) => y);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-  const centerX = (minX + maxX) / 2;
-  const centerY = (minY + maxY) / 2;
-  const boxCenter = [centerX, centerY];
-  if (isPointInsidePolygon(boxCenter, coordinates)) return boxCenter;
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const cellSize = Math.min(width, height);
+  if (cellSize <= 0) return coordinates[0];
 
-  const uniqueYs = [...new Set(ys)].sort((a, b) => a - b);
-  const scanLines = [centerY];
-  for (let index = 0; index < uniqueYs.length - 1; index += 1) {
-    scanLines.push((uniqueYs[index] + uniqueYs[index + 1]) / 2);
+  const cells = [];
+  const initialHalfSize = cellSize / 2;
+  for (let x = minX; x < maxX; x += cellSize) {
+    for (let y = minY; y < maxY; y += cellSize) {
+      cells.push(makeLabelCell(x + initialHalfSize, y + initialHalfSize, initialHalfSize, coordinates));
+    }
   }
 
-  let bestPoint = null;
-  let bestScore = -Infinity;
-  scanLines.forEach((scanY) => {
-    const intersections = [];
-    coordinates.forEach(([x1, y1], index) => {
-      const [x2, y2] = coordinates[(index + 1) % coordinates.length];
-      if ((y1 > scanY) === (y2 > scanY)) return;
-      intersections.push(x1 + ((scanY - y1) * (x2 - x1)) / (y2 - y1));
-    });
-    intersections.sort((a, b) => a - b);
-    for (let index = 0; index + 1 < intersections.length; index += 2) {
-      const left = intersections[index];
-      const right = intersections[index + 1];
-      const candidate = [(left + right) / 2, scanY];
-      const centerDistance = Math.hypot(candidate[0] - centerX, candidate[1] - centerY);
-      const score = right - left - centerDistance * 0.05;
-      if (score > bestScore && isPointInsidePolygon(candidate, coordinates)) {
-        bestPoint = candidate;
-        bestScore = score;
-      }
-    }
-  });
+  let bestCell = getPolygonCentroidCell(coordinates);
+  const boundsCenterCell = makeLabelCell(minX + width / 2, minY + height / 2, 0, coordinates);
+  if (boundsCenterCell.distance > bestCell.distance) bestCell = boundsCenterCell;
+  const precision = Math.max(0.05, cellSize / 500);
 
-  return bestPoint || coordinates[0];
+  while (cells.length) {
+    cells.sort((a, b) => b.potential - a.potential);
+    const cell = cells.shift();
+    if (cell.distance > bestCell.distance) bestCell = cell;
+    if (cell.potential - bestCell.distance <= precision) continue;
+    const halfSize = cell.halfSize / 2;
+    cells.push(
+      makeLabelCell(cell.x - halfSize, cell.y - halfSize, halfSize, coordinates),
+      makeLabelCell(cell.x + halfSize, cell.y - halfSize, halfSize, coordinates),
+      makeLabelCell(cell.x - halfSize, cell.y + halfSize, halfSize, coordinates),
+      makeLabelCell(cell.x + halfSize, cell.y + halfSize, halfSize, coordinates),
+    );
+  }
+
+  const point = [Number(bestCell.x.toFixed(3)), Number(bestCell.y.toFixed(3))];
+  if (polygonLabelPointCache.size > 1000) polygonLabelPointCache.clear();
+  polygonLabelPointCache.set(cacheKey, point);
+  return point;
 }
 
 function styleDrawingVertices(markers) {
@@ -313,12 +341,30 @@ function HiddenDrawControl({ imageHeight, request, onCreated }) {
           polygon: {
             allowIntersection: false,
             showArea: false,
-            shapeOptions: { color: "#2563eb", fillColor: "#3b82f6", fillOpacity: 0.28, weight: 3 },
+            shapeOptions: {
+              color: "#2563eb",
+              fillColor: "#3b82f6",
+              fillOpacity: 0.28,
+              weight: 3,
+              smoothFactor: 0,
+              noClip: true,
+              lineCap: "square",
+              lineJoin: "miter",
+            },
           },
           polyline: false,
           rectangle: {
             showArea: false,
-            shapeOptions: { color: "#2563eb", fillColor: "#3b82f6", fillOpacity: 0.28, weight: 3 },
+            shapeOptions: {
+              color: "#2563eb",
+              fillColor: "#3b82f6",
+              fillOpacity: 0.28,
+              weight: 3,
+              smoothFactor: 0,
+              noClip: true,
+              lineCap: "square",
+              lineJoin: "miter",
+            },
           },
           circle: false,
           circlemarker: false,
@@ -511,12 +557,16 @@ export default function SiteMapPanel({
               <React.Fragment key={building.id}>
                 <Polygon
                   positions={positions}
+                  smoothFactor={0}
+                  noClip
                   pathOptions={{
                     color: selectedBuildingId === building.id ? "#111827" : "#6b7280",
                     fillColor,
                     fillOpacity: allowed ? 0.32 : 0.07,
                     opacity: allowed ? 1 : 0.35,
                     weight: selectedBuildingId === building.id ? 3 : 1.25,
+                    lineCap: "square",
+                    lineJoin: "miter",
                   }}
                   eventHandlers={{
                     click: () => allowed && onSelect(building.id),

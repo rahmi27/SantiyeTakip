@@ -316,8 +316,8 @@ function sanitizeBuildingCoordinates(coordinates, map) {
     .map((point) => [Number(point?.[0]), Number(point?.[1])])
     .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
     .map(([x, y]) => [
-      Number(Math.min(map.width, Math.max(0, x)).toFixed(2)),
-      Number(Math.min(map.height, Math.max(0, y)).toFixed(2)),
+      Number(Math.min(map.width, Math.max(0, x)).toFixed(3)),
+      Number(Math.min(map.height, Math.max(0, y)).toFixed(3)),
     ]);
   return points.length >= 3 ? points : [];
 }
@@ -783,6 +783,69 @@ function getProgressRange(progress, ranges) {
   );
 }
 
+function CategoryWeightEditor({ value, onCommit }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(value ?? 0));
+
+  useEffect(() => {
+    if (!editing) setDraft(String(value ?? 0));
+  }, [editing, value]);
+
+  function cancelEditing() {
+    setDraft(String(value ?? 0));
+    setEditing(false);
+  }
+
+  function commitEditing() {
+    onCommit(clampPercent(draft));
+    setEditing(false);
+  }
+
+  return (
+    <div className="category-weight-control">
+      <input
+        type="number"
+        min="0"
+        max="100"
+        step="1"
+        value={draft}
+        readOnly={!editing}
+        aria-label="Kategori ağırlığı %"
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && editing) {
+            event.preventDefault();
+            commitEditing();
+          }
+          if (event.key === "Escape" && editing) {
+            event.preventDefault();
+            cancelEditing();
+          }
+        }}
+      />
+      <button
+        type="button"
+        className="icon-button"
+        title={editing ? "Değişikliği iptal et" : "Kategori ağırlığını düzenle"}
+        aria-label={editing ? "Değişikliği iptal et" : "Kategori ağırlığını düzenle"}
+        onClick={editing ? cancelEditing : () => setEditing(true)}
+      >
+        {editing ? <X size={15} /> : <Edit3 size={15} />}
+      </button>
+      <button
+        type="button"
+        className="icon-button category-weight-confirm"
+        title="Kategori ağırlığını onayla"
+        aria-label="Kategori ağırlığını onayla"
+        disabled={!editing}
+        onClick={commitEditing}
+      >
+        <Check size={15} />
+      </button>
+    </div>
+  );
+}
+
 function App() {
   const [state, setState] = useState(loadInitialState);
   const [currentUserId, setCurrentUserId] = useState(() => readStorage(SESSION_KEY));
@@ -1001,6 +1064,7 @@ function App() {
       if (!categoryWorks.length) return;
       const previousWeight = getBuildingCategoryWeight(building, categoryKey, categoryWorks);
       const nextWeight = clampPercent(value);
+      if (previousWeight === nextWeight) return;
       building.categoryWeights = building.categoryWeights || {};
       building.categoryWeights[categoryKey] = nextWeight;
       building.updatedAt = new Date().toISOString();
@@ -2244,17 +2308,13 @@ function BuildingModal({
                     <i style={{ width: `${category.progress}%`, background: getProgressColor(category.progress, progressRanges) }} />
                   </div>
                   {user.role === "admin" && (
-                    <label className="category-weight-field">
+                    <div className="category-weight-field">
                       <span>Kategori ağırlığı %</span>
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="1"
+                      <CategoryWeightEditor
                         value={category.weight}
-                        onChange={(event) => onSetCategoryWeight(building.id, category.key, event.target.value)}
+                        onCommit={(value) => onSetCategoryWeight(building.id, category.key, value)}
                       />
-                    </label>
+                    </div>
                   )}
                 </div>
               ))}
@@ -3089,17 +3149,13 @@ function BuildingsPanel({
                 <div className="mini-progress">
                   <i style={{ width: `${category.progress}%` }} />
                 </div>
-                <label className="category-weight-field">
+                <div className="category-weight-field">
                   <span>Kategori ağırlığı %</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="1"
+                  <CategoryWeightEditor
                     value={category.weight}
-                    onChange={(event) => onSetCategoryWeight(selectedBuilding.id, category.key, event.target.value)}
+                    onCommit={(value) => onSetCategoryWeight(selectedBuilding.id, category.key, value)}
                   />
-                </label>
+                </div>
               </div>
             ))}
           </div>

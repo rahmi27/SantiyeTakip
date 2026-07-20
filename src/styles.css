@@ -569,15 +569,22 @@ img {
 
 .category-weight-field {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px;
-  gap: 8px;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  align-items: stretch;
   margin-top: 3px;
   color: var(--text-soft);
   font-size: 11px;
 }
 
-.category-weight-field input,
+.category-weight-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px 34px;
+  gap: 5px;
+  align-items: center;
+}
+
+.category-weight-control input,
 .progress-number-field input {
   width: 100%;
   min-height: 34px;
@@ -586,6 +593,23 @@ img {
   background: var(--panel-strong);
   border: 1px solid var(--line);
   border-radius: 7px;
+}
+
+.category-weight-control input[readonly] {
+  cursor: default;
+  background: var(--panel-soft);
+}
+
+.category-weight-control .icon-button {
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+}
+
+.category-weight-control .category-weight-confirm:not(:disabled) {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 55%, var(--line));
 }
 
 .map-section {
